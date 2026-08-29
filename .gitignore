@@ -9,3 +9,4 @@ resources/bin/
 **/obj/
 private-packs/
 *.local
+*.lnk
