@@ -12,8 +12,17 @@ import {
   Tray,
   type IpcMainInvokeEvent,
 } from "electron";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+
+const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
+const projectRoot = path.resolve(currentDirectory, "..", "..");
+const cjsPreload = path.join(currentDirectory, "preload.cjs");
+const preloadPath = fs.existsSync(cjsPreload) ? cjsPreload : path.join(currentDirectory, "preload.js");
+const rendererPath = path.join(projectRoot, "dist-renderer", "index.html");
+const schemaPath = path.join(projectRoot, "schemas", "partner-pack.v1.schema.json");
+
 import {
   REACTION_KEYS,
   type BootstrapData,
@@ -68,11 +77,7 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 
-const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
-const projectRoot = path.resolve(currentDirectory, "..", "..");
-const preloadPath = path.join(currentDirectory, "preload.js");
-const rendererPath = path.join(projectRoot, "dist-renderer", "index.html");
-const schemaPath = path.join(projectRoot, "schemas", "partner-pack.v1.schema.json");
+
 
 const permissionManager = new PermissionManager();
 let captureService: ElectronCaptureService | null = null;
@@ -171,10 +176,17 @@ function createMainWindow(): BrowserWindow {
   window.webContents.on("did-fail-load", (_event, errorCode, errorDescription) => {
     console.error("[MainWindow] Failed to load renderer:", errorCode, errorDescription);
   });
+  window.webContents.on("console-message", (_event, level, message, line, sourceId) => {
+    console.log(`[RendererConsole level=${level}] ${message} (${sourceId}:${line})`);
+  });
+  window.webContents.on("render-process-gone", (_event, details) => {
+    console.error("[RenderProcessGone]", details);
+  });
   window.once("ready-to-show", () => {
     window.show();
     window.focus();
   });
+
 
   window.on("close", (event) => {
     if (!isQuitting) {

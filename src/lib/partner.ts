@@ -43,9 +43,17 @@ export function resolveAssetUrl(filePath: string, baseUrl?: string): string {
   if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(filePath)) {
     return filePath;
   }
-  const base = baseUrl && baseUrl.length > 0 ? baseUrl : window.location.href;
+  let base = window.location.href;
+  if (baseUrl && baseUrl.trim().length > 0) {
+    try {
+      base = new URL(baseUrl, window.location.href).href;
+    } catch {
+      base = window.location.href;
+    }
+  }
   return new URL(filePath, base.endsWith("/") ? base : `${base}/`).href;
 }
+
 
 
 export async function loadBootstrapData(): Promise<BootstrapData> {
