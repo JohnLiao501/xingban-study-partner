@@ -168,7 +168,14 @@ function createMainWindow(): BrowserWindow {
   });
   window.setContentProtection(true);
   hardenWindow(window);
-  window.once("ready-to-show", () => window.show());
+  window.webContents.on("did-fail-load", (_event, errorCode, errorDescription) => {
+    console.error("[MainWindow] Failed to load renderer:", errorCode, errorDescription);
+  });
+  window.once("ready-to-show", () => {
+    window.show();
+    window.focus();
+  });
+
   window.on("close", (event) => {
     if (!isQuitting) {
       event.preventDefault();
@@ -612,9 +619,22 @@ function registerIpc(): void {
   ipcMain.handle("window:close", (event) => senderWindow(event)?.close());
 }
 
-app.setAppUserModelId("com.xingban.study-partner");
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
 
-app.whenReady().then(async () => {
+  app.setAppUserModelId("com.xingban.study-partner");
+
+  app.whenReady().then(async () => {
+
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
     const allowed = permissionManager.shouldAllowPermission(
       webContents.id,
@@ -782,3 +802,5 @@ app.on("before-quit", () => {
 app.on("window-all-closed", () => {
   // Windows MVP keeps the process alive through the tray.
 });
+}
+
