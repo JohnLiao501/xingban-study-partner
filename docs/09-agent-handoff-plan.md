@@ -452,7 +452,7 @@ sidecar 输出示例：
 - [x] S3-001 收敛检查点频率、恢复语义和 `StartSessionInput` 文档差异。
 - [x] S3-002 新增 inspection/capture/settings 共享类型与严格运行时校验。
 - [x] S3-003 建立 ForegroundProbe 接口、fake、状态和 parser 测试。
-- [ ] S3-004 实现并打包 Windows x64 sidecar，完成崩溃/重启/停止验证。
+- [x] S3-004 实现并打包 Windows x64 sidecar，完成崩溃/重启/停止验证。
 - [x] S3-005 实现 LocalRuleClassifier 与 20 秒持续 block 边界测试。
 - [ ] S3-006 以默认拒绝策略收紧 Electron 媒体/显示捕获权限。
 - [ ] S3-007 实现显式源选择、一次性授权、单帧缩放与二进制传输。

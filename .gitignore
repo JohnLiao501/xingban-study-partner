@@ -4,3 +4,6 @@ dist-renderer/
 .vite/
 coverage/
 *.log
+resources/bin/
+**/bin/
+**/obj/

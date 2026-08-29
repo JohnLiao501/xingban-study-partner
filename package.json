@@ -9,6 +9,7 @@
     "dev": "pnpm run build && electron .",
     "dev:renderer": "vite --host 127.0.0.1",
     "build": "pnpm run typecheck && pnpm run build:main && pnpm run build:renderer",
+    "build:probe": "dotnet publish sidecars/windows-foreground-probe -c Release -o resources/bin",
     "build:main": "tsc -p tsconfig.electron.json",
     "build:renderer": "vite build",
     "typecheck": "tsc -p tsconfig.renderer.json --noEmit && tsc -p tsconfig.electron.json --noEmit",
