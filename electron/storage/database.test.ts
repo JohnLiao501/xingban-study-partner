@@ -121,4 +121,62 @@ describe("XingbanDatabase", () => {
     expect(database.listAppRules()).toEqual([]);
     database.close();
   });
+
+  it("正确记录并查询会话的结构化 Observation 明细", () => {
+    const database = new XingbanDatabase(":memory:");
+    const sessionId = "session-with-obs";
+    database.saveSession(focusingSession(sessionId));
+
+    // 写入两条结构化观察
+    database.recordStructuredObservation({
+      sessionId,
+      observedAt: "2026-08-29T10:00:00.000Z",
+      label: "focused",
+      confidence: 0.95,
+      source: "local-rule",
+      reasonCode: "allowed_app",
+      appName: "Code",
+      windowTitleHash: "hash-code-123456",
+      confirmedDeviation: false,
+    });
+
+    database.recordStructuredObservation({
+      sessionId,
+      observedAt: "2026-08-29T10:15:00.000Z",
+      label: "distracted",
+      confidence: 0.88,
+      source: "vision-api",
+      reasonCode: "entertainment_content",
+      appName: "bilibili",
+      windowTitleHash: null,
+      confirmedDeviation: true,
+    });
+
+    const records = database.listSessionObservations(sessionId);
+    expect(records).toHaveLength(2);
+
+    expect(records[0]).toMatchObject({
+      sessionId,
+      label: "focused",
+      confidence: 0.95,
+      source: "local-rule",
+      reasonCode: "allowed_app",
+      appName: "Code",
+      windowTitleHash: "hash-code-123456",
+      confirmedDeviation: false,
+    });
+
+    expect(records[1]).toMatchObject({
+      sessionId,
+      label: "distracted",
+      confidence: 0.88,
+      source: "vision-api",
+      reasonCode: "entertainment_content",
+      appName: "bilibili",
+      windowTitleHash: null,
+      confirmedDeviation: true,
+    });
+
+    database.close();
+  });
 });

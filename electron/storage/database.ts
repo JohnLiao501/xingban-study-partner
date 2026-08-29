@@ -9,6 +9,11 @@ import type {
   SessionHistoryEntry,
   SessionSnapshot,
 } from "../../shared/session.js";
+import type {
+  ObservationRecord,
+  InspectionSource,
+  ObservationReasonCode,
+} from "../../shared/inspection.js";
 import type { CreateStructuredObservationParams } from "../inspection/observation.js";
 
 interface SessionRow {
@@ -235,6 +240,40 @@ export class XingbanDatabase {
       trustGained: row.trust_gained,
       startedAt: row.started_at,
       endedAt: row.ended_at,
+    }));
+  }
+
+  listSessionObservations(sessionId: string): ObservationRecord[] {
+    const rows = this.database.prepare(`
+      SELECT id, session_id, observed_at, label, confidence, source, reason_code,
+             app_name, window_title_hash, confirmed_deviation
+      FROM observations
+      WHERE session_id = ?
+      ORDER BY observed_at ASC
+    `).all(sessionId) as unknown as Array<{
+      id: string;
+      session_id: string;
+      observed_at: string;
+      label: ObservationLabel;
+      confidence: number;
+      source: InspectionSource;
+      reason_code: ObservationReasonCode;
+      app_name: string | null;
+      window_title_hash: string | null;
+      confirmed_deviation: number;
+    }>;
+
+    return rows.map((r) => ({
+      id: r.id,
+      sessionId: r.session_id,
+      observedAt: r.observed_at,
+      label: r.label,
+      confidence: r.confidence,
+      source: r.source,
+      reasonCode: r.reason_code,
+      appName: r.app_name,
+      windowTitleHash: r.window_title_hash,
+      confirmedDeviation: Boolean(r.confirmed_deviation),
     }));
   }
 

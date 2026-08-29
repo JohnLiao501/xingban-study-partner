@@ -462,8 +462,8 @@ sidecar 输出示例：
 - [x] S3-011 实现 safeStorage SecretStore 与脱敏设置 IPC。
 - [x] S3-012 实现兼容 VisionAdapter、严格 JSON 校验和失败降级。
 - [x] S3-013 扩展会话设置、状态、主界面停止和托盘停止控制。
-- [ ] S3-014 接入结构化 observation 持久化；如需变更则新增 migration v2。
-- [ ] S3-015 建立日志 allowlist/redaction 与敏感字段测试。
+- [x] S3-014 接入结构化 observation 持久化；如需变更则新增 migration v2。
+- [x] S3-015 建立日志 allowlist/redaction 与敏感字段测试。
 - [ ] S3-016 完成内容保护、多屏/DPI、停止共享和真实 Electron 验收。
 - [ ] S3-017 完成加速端到端与 25 分钟模拟学习验收。
 - [ ] S3-018 更新 README、架构、隐私、IPC、测试与路线图的完成状态。

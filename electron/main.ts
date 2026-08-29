@@ -392,6 +392,9 @@ function registerIpc(): void {
     }
     return database?.listSessionHistory(limit ?? 50) ?? [];
   });
+  ipcMain.handle("history:list-observations", (_event, sessionId: unknown) => {
+    return database?.listSessionObservations(requireSessionId(sessionId)) ?? [];
+  });
   ipcMain.handle("partner:get-progress", (_event, partnerId: unknown) => {
     if (typeof partnerId !== "string" || partnerId.length < 1 || partnerId.length > 120) {
       throw new Error("IPC_INVALID_PAYLOAD");

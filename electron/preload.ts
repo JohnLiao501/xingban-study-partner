@@ -77,6 +77,7 @@ const api: StudyPartnerApi = {
   getVisionSettings: () => ipcRenderer.invoke("settings:get-vision") as Promise<any>,
   saveVisionSettings: (input) => ipcRenderer.invoke("settings:save-vision", input) as Promise<any>,
   testVisionConnection: () => ipcRenderer.invoke("settings:test-connection") as Promise<any>,
+  listSessionObservations: (sessionId: string) => ipcRenderer.invoke("history:list-observations", sessionId) as Promise<any>,
   onSessionChanged: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, snapshot: SessionSnapshot) => {
       listener(snapshot);

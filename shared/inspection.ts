@@ -34,6 +34,20 @@ export interface InspectionResult {
   errorCode: string | null;
 }
 
+/** 持久化结构化观察记录 */
+export interface ObservationRecord {
+  id: string;
+  sessionId: string;
+  observedAt: string;
+  label: ObservationLabel;
+  confidence: number;
+  source: InspectionSource;
+  reasonCode: ObservationReasonCode;
+  appName: string | null;
+  windowTitleHash: string | null;
+  confirmedDeviation: boolean;
+}
+
 export const CAPTURE_STATUSES = ["inactive", "active", "stopped", "failed"] as const;
 export type CaptureStatus = (typeof CAPTURE_STATUSES)[number];
 
