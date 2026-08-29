@@ -66,7 +66,10 @@ export class FakeCaptureService implements CaptureService {
     return true;
   }
 
+  public captureCallCount = 0;
+
   async captureFrame(): Promise<Uint8Array | null> {
+    this.captureCallCount += 1;
     if (this.status !== "active") return null;
     return this.frameToReturn;
   }
