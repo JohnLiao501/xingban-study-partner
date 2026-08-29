@@ -61,8 +61,9 @@ export function MediaStage({ activityLabel, assetBaseUrl, coverPath, partnerName
   return (
     <section className="media-column">
       <div className="media-stage">
-        <img alt="静谧观测室原创场景封面" className="media-fallback" src={coverUrl} />
+        <img alt={`${partnerName}场景封面`} className="media-fallback" src={coverUrl} />
         {!mediaFailed ? (
+
           <video
             autoPlay
             className="media-video"
