@@ -198,3 +198,38 @@ export async function loadBundledDemo(
   const schemaPath = path.join(projectRoot, "schemas", "partner-pack.v1.schema.json");
   return loadPackFromDirectory(demoRoot, schemaPath);
 }
+
+export interface DiscoveredPack {
+  manifest: PartnerPackManifestV1;
+  directoryPath: string;
+}
+
+export async function discoverLocalPacks(
+  searchDirectory: string,
+  schemaPath: string,
+): Promise<DiscoveredPack[]> {
+  try {
+    const entries = await readdir(searchDirectory, { withFileTypes: true });
+    const discovered: DiscoveredPack[] = [];
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        const candidateDir = path.join(searchDirectory, entry.name);
+        try {
+          const result = await validatePackDirectory(candidateDir, schemaPath);
+          if (result.ok && result.manifest) {
+            discovered.push({
+              manifest: result.manifest,
+              directoryPath: candidateDir,
+            });
+          }
+        } catch {
+          // 忽略校验失败或非伙伴包目录
+        }
+      }
+    }
+    return discovered;
+  } catch {
+    return [];
+  }
+}
+

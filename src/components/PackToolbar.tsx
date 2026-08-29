@@ -1,11 +1,13 @@
-import type { PartnerPackManifestV1 } from "../../shared/partner-pack";
+import type { InstalledPartnerSummary, PartnerPackManifestV1 } from "../../shared/partner-pack";
 import { Icon } from "./Icon";
 
 interface PackToolbarProps {
   manifest: PartnerPackManifestV1;
+  installedPartners?: InstalledPartnerSummary[];
   sceneId: string;
   desktopRuntime: boolean;
   sessionActive: boolean;
+  onPartnerChange?: (partnerId: string) => void;
   onSceneChange: (sceneId: string) => void;
   onImport: () => void;
   onStart: () => void;
@@ -13,9 +15,11 @@ interface PackToolbarProps {
 
 export function PackToolbar({
   manifest,
+  installedPartners,
   sceneId,
   desktopRuntime,
   sessionActive,
+  onPartnerChange,
   onSceneChange,
   onImport,
   onStart,
@@ -24,10 +28,24 @@ export function PackToolbar({
     <section className="pack-toolbar" aria-label="伙伴与场景">
       <label className="select-field">
         <span>伙伴</span>
-        <select aria-label="选择伙伴" defaultValue={manifest.partnerId} disabled>
-          <option value={manifest.partnerId}>{manifest.displayName}</option>
+        <select
+          aria-label="选择伙伴"
+          disabled={sessionActive || !onPartnerChange || (installedPartners !== undefined && installedPartners.length <= 1)}
+          onChange={(event) => onPartnerChange?.(event.target.value)}
+          value={manifest.partnerId}
+        >
+          {installedPartners && installedPartners.length > 0 ? (
+            installedPartners.map((partner) => (
+              <option key={partner.partnerId} value={partner.partnerId}>
+                {partner.displayName}
+              </option>
+            ))
+          ) : (
+            <option value={manifest.partnerId}>{manifest.displayName}</option>
+          )}
         </select>
       </label>
+
       <span className="toolbar-divider" aria-hidden="true" />
       <label className="select-field">
         <span>场景</span>

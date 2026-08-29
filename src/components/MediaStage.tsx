@@ -9,10 +9,11 @@ interface MediaStageProps {
   partnerName: string;
   preview: ReactionPreview;
   activityLabel?: string;
+  assetBaseUrl?: string;
   onShowOverlay: () => void;
 }
 
-export function MediaStage({ activityLabel, coverPath, partnerName, preview, onShowOverlay }: MediaStageProps) {
+export function MediaStage({ activityLabel, assetBaseUrl, coverPath, partnerName, preview, onShowOverlay }: MediaStageProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(true);
   const [isMuted, setIsMuted] = useState(true);
@@ -20,8 +21,9 @@ export function MediaStage({ activityLabel, coverPath, partnerName, preview, onS
   const [duration, setDuration] = useState(preview.video.durationMs ? preview.video.durationMs / 1000 : 0);
   const [mediaFailed, setMediaFailed] = useState(false);
 
-  const videoUrl = resolveAssetUrl(preview.video.filePath);
-  const coverUrl = resolveAssetUrl(coverPath);
+  const videoUrl = resolveAssetUrl(preview.video.filePath, assetBaseUrl);
+  const coverUrl = resolveAssetUrl(coverPath, assetBaseUrl);
+
 
   useEffect(() => {
     setMediaFailed(false);

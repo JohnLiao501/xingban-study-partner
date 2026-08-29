@@ -5,16 +5,21 @@ import {
   ipcMain,
   Menu,
   nativeImage,
+  net,
+  protocol,
   session,
   shell,
   Tray,
   type IpcMainInvokeEvent,
 } from "electron";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   REACTION_KEYS,
+  type BootstrapData,
+  type InstalledPartnerSummary,
   type OverlayPreviewPayload,
+  type PartnerPackManifestV1,
   type ReactionKey,
 } from "../shared/partner-pack.js";
 import {
@@ -31,9 +36,12 @@ import {
   type SaveAppRuleInput,
 } from "../shared/rules.js";
 import {
+  discoverLocalPacks,
   installPackDirectory,
   loadBundledDemo,
+  loadPackFromDirectory,
 } from "./partner-pack/service.js";
+import { isSafePackPath } from "./partner-pack/validator.js";
 import { SessionService } from "./session/service.js";
 import { XingbanDatabase } from "./storage/database.js";
 import { PermissionManager } from "./security/permission-manager.js";
@@ -45,6 +53,20 @@ import { LocalRuleClassifier } from "./inspection/local-rule-classifier.js";
 import { InspectionEngine } from "./inspection/inspection-engine.js";
 import { mapInspectionToObservationParams } from "./inspection/observation.js";
 import type { SaveVisionSettingsInput, VisionSettingsView } from "../shared/inspection.js";
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: "partner-asset",
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+      bypassCSP: true,
+    },
+  },
+]);
+
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(currentDirectory, "..", "..");
@@ -76,6 +98,24 @@ let isQuitting = false;
 let sessionService: SessionService | undefined;
 let database: XingbanDatabase | undefined;
 let bundledDemo: Awaited<ReturnType<typeof loadBundledDemo>> | undefined;
+let activePartnerManifest: PartnerPackManifestV1 | undefined;
+const partnerDirectoryMap = new Map<string, string>();
+
+function getPartnerDirectory(partnerId: string): string | null {
+  if (partnerDirectoryMap.has(partnerId)) {
+    return partnerDirectoryMap.get(partnerId)!;
+  }
+  if (bundledDemo && bundledDemo.partnerId === partnerId) {
+    return path.join(projectRoot, "examples", "demo-partner");
+  }
+  const installed = database?.listInstalledPacks() ?? [];
+  const found = installed.find((p) => p.partnerId === partnerId);
+  if (found) {
+    return found.installPath;
+  }
+  return null;
+}
+
 
 function createTrayIcon(): Electron.NativeImage {
   const svg = `
@@ -269,11 +309,73 @@ function isSaveAppRuleInput(value: unknown): value is SaveAppRuleInput {
 }
 
 function registerIpc(): void {
-  ipcMain.handle("app:get-bootstrap", async () => ({
-    manifest: bundledDemo ?? await loadBundledDemo(projectRoot),
-    assetBaseUrl: "./",
-    desktopRuntime: true,
-  }));
+  ipcMain.handle("app:get-bootstrap", async (): Promise<BootstrapData> => {
+    const currentManifest = activePartnerManifest ?? bundledDemo ?? await loadBundledDemo(projectRoot);
+    return {
+      manifest: currentManifest,
+      assetBaseUrl: `partner-asset://${currentManifest.partnerId}/`,
+      desktopRuntime: true,
+    };
+  });
+
+  ipcMain.handle("partner:list", async (): Promise<InstalledPartnerSummary[]> => {
+    const result: InstalledPartnerSummary[] = [];
+    const activeId = activePartnerManifest?.partnerId ?? bundledDemo?.partnerId;
+
+    if (bundledDemo) {
+      result.push({
+        partnerId: bundledDemo.partnerId,
+        packVersion: bundledDemo.packVersion,
+        displayName: bundledDemo.displayName,
+        description: bundledDemo.description,
+        sourceType: bundledDemo.sourceType,
+        distribution: bundledDemo.distribution,
+        active: bundledDemo.partnerId === activeId,
+      });
+    }
+
+    const installed = database?.listInstalledPacks() ?? [];
+    for (const pack of installed) {
+      if (!result.some((r) => r.partnerId === pack.partnerId)) {
+        result.push({
+          partnerId: pack.partnerId,
+          packVersion: pack.packVersion,
+          displayName: pack.displayName,
+          description: "",
+          sourceType: pack.sourceType as InstalledPartnerSummary["sourceType"],
+          distribution: pack.distribution as InstalledPartnerSummary["distribution"],
+          active: pack.partnerId === activeId,
+        });
+      }
+    }
+
+    return result;
+  });
+
+  ipcMain.handle("partner:select", async (_event, partnerId: unknown): Promise<BootstrapData> => {
+    if (typeof partnerId !== "string" || partnerId.length < 1 || partnerId.length > 120) {
+      throw new Error("IPC_INVALID_PAYLOAD");
+    }
+
+    const dir = getPartnerDirectory(partnerId);
+    if (!dir) {
+      throw new Error("PARTNER_NOT_FOUND");
+    }
+
+    const manifest = (bundledDemo && bundledDemo.partnerId === partnerId)
+      ? bundledDemo
+      : await loadPackFromDirectory(dir, schemaPath);
+
+    activePartnerManifest = manifest;
+    partnerDirectoryMap.set(partnerId, dir);
+    database?.setActivePartnerId(partnerId);
+
+    return {
+      manifest,
+      assetBaseUrl: `partner-asset://${manifest.partnerId}/`,
+      desktopRuntime: true,
+    };
+  });
 
   ipcMain.handle("partner:import-directory", async () => {
     const options: Electron.OpenDialogOptions = {
@@ -288,8 +390,26 @@ function registerIpc(): void {
     }
 
     const installRoot = path.join(app.getPath("userData"), "partners");
-    return installPackDirectory(result.filePaths[0], installRoot, schemaPath);
+    const installResult = await installPackDirectory(result.filePaths[0], installRoot, schemaPath);
+
+    if (installResult.ok && installResult.manifest && installResult.installedPath) {
+      partnerDirectoryMap.set(installResult.manifest.partnerId, installResult.installedPath);
+      database?.saveInstalledPack({
+        partnerId: installResult.manifest.partnerId,
+        packVersion: installResult.manifest.packVersion,
+        displayName: installResult.manifest.displayName,
+        sourceType: installResult.manifest.sourceType,
+        distribution: installResult.manifest.distribution,
+        installPath: installResult.installedPath,
+        manifestHash: "",
+        enabled: true,
+        installedAt: new Date().toISOString(),
+      });
+    }
+
+    return installResult;
   });
+
 
   ipcMain.handle("overlay:show-preview", async (_event, payload: unknown) => {
     if (!isOverlayPayload(payload)) throw new Error("IPC_INVALID_PAYLOAD");
@@ -507,6 +627,84 @@ app.whenReady().then(async () => {
   database = new XingbanDatabase(path.join(app.getPath("userData"), "xingban.sqlite3"));
   secretStore = new SecretStore(database);
 
+  protocol.handle("partner-asset", (request) => {
+    try {
+      const parsedUrl = new URL(request.url);
+      const partnerId = decodeURIComponent(parsedUrl.hostname);
+      let relativePath = decodeURIComponent(parsedUrl.pathname);
+      if (relativePath.startsWith("/")) {
+        relativePath = relativePath.slice(1);
+      }
+
+      const packRoot = getPartnerDirectory(partnerId);
+      if (!packRoot) {
+        return new Response("Partner Not Found", { status: 404 });
+      }
+
+      if (!isSafePackPath(relativePath)) {
+        return new Response("Forbidden Path", { status: 403 });
+      }
+
+      const resolvedRoot = path.resolve(packRoot);
+      const resolvedPath = path.resolve(packRoot, ...relativePath.split("/"));
+      if (!resolvedPath.startsWith(`${resolvedRoot}${path.sep}`)) {
+        return new Response("Forbidden Path", { status: 403 });
+      }
+
+      return net.fetch(pathToFileURL(resolvedPath).toString());
+    } catch {
+      return new Response("Asset Load Error", { status: 500 });
+    }
+  });
+
+  const demoPath = path.join(projectRoot, "examples", "demo-partner");
+  if (bundledDemo) {
+    partnerDirectoryMap.set(bundledDemo.partnerId, demoPath);
+  }
+
+  // 发现本地 private-packs 中的伙伴包并注册到数据库
+  const privatePacksDir = path.join(projectRoot, "private-packs");
+  const discovered = await discoverLocalPacks(privatePacksDir, schemaPath);
+  for (const pack of discovered) {
+    partnerDirectoryMap.set(pack.manifest.partnerId, pack.directoryPath);
+    database.saveInstalledPack({
+      partnerId: pack.manifest.partnerId,
+      packVersion: pack.manifest.packVersion,
+      displayName: pack.manifest.displayName,
+      sourceType: pack.manifest.sourceType,
+      distribution: pack.manifest.distribution,
+      installPath: pack.directoryPath,
+      manifestHash: "",
+      enabled: true,
+      installedAt: new Date().toISOString(),
+    });
+  }
+
+  // 载入已安装伙伴
+  const installedPacks = database.listInstalledPacks();
+  for (const pack of installedPacks) {
+    if (!partnerDirectoryMap.has(pack.partnerId)) {
+      partnerDirectoryMap.set(pack.partnerId, pack.installPath);
+    }
+  }
+
+  // 恢复活跃伙伴
+  const savedActiveId = database.getActivePartnerId();
+  if (savedActiveId && savedActiveId !== bundledDemo?.partnerId) {
+    const packDir = getPartnerDirectory(savedActiveId);
+    if (packDir) {
+      try {
+        activePartnerManifest = await loadPackFromDirectory(packDir, schemaPath);
+      } catch {
+        activePartnerManifest = bundledDemo;
+      }
+    } else {
+      activePartnerManifest = bundledDemo;
+    }
+  } else {
+    activePartnerManifest = bundledDemo;
+  }
+
   let initialVision = DEFAULT_VISION_CONFIG;
   const rawVision = database.getAppSetting(SETTINGS_KEY_VISION);
   if (rawVision) {
@@ -541,12 +739,16 @@ app.whenReady().then(async () => {
       });
     }
   }, database, (partnerId, totalTrust) => {
-    if (bundledDemo?.partnerId !== partnerId) return "initial";
-    const eligible = bundledDemo.relationshipLevels
+    const currentManifest = (activePartnerManifest?.partnerId === partnerId)
+      ? activePartnerManifest
+      : (bundledDemo?.partnerId === partnerId ? bundledDemo : undefined);
+    if (!currentManifest) return "initial";
+    const eligible = currentManifest.relationshipLevels
       .filter((level) => level.minimumTrust <= totalTrust)
       .sort((left, right) => right.minimumTrust - left.minimumTrust);
-    return eligible[0]?.id ?? bundledDemo.relationshipLevels[0]?.id ?? "initial";
+    return eligible[0]?.id ?? currentManifest.relationshipLevels[0]?.id ?? "initial";
   });
+
   registerIpc();
   mainWindow = createMainWindow();
   overlayWindow = createOverlayWindow();

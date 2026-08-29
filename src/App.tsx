@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   REACTION_LABELS,
   type BootstrapData,
+  type InstalledPartnerSummary,
   type ReactionKey,
 } from "../shared/partner-pack";
 import { ActionPanel } from "./components/ActionPanel";
@@ -30,6 +31,7 @@ const SESSION_ACTIVITY_LABELS = {
 
 export default function App() {
   const [bootstrap, setBootstrap] = useState<BootstrapData>();
+  const [installedPartners, setInstalledPartners] = useState<InstalledPartnerSummary[]>([]);
   const [loadError, setLoadError] = useState<string>();
   const [sceneId, setSceneId] = useState("");
   const [reactionKey, setReactionKey] = useState<ReactionKey>("idle_loop");
@@ -38,6 +40,15 @@ export default function App() {
   const [currentView, setCurrentView] = useState<AppView>("study");
   const session = useSessionController();
   const appRules = useAppRules();
+
+  const refreshInstalledPartners = async () => {
+    if (window.studyPartner) {
+      try {
+        const list = await window.studyPartner.listInstalledPartners();
+        setInstalledPartners(list);
+      } catch {}
+    }
+  };
 
   useEffect(() => {
     let active = true;
@@ -50,10 +61,28 @@ export default function App() {
       .catch((error: unknown) => {
         if (active) setLoadError(error instanceof Error ? error.message : "伙伴包加载失败");
       });
+    void refreshInstalledPartners();
     return () => {
       active = false;
     };
   }, []);
+
+  const handlePartnerChange = async (partnerId: string) => {
+    if (!window.studyPartner) return;
+    try {
+      const data = await window.studyPartner.selectPartner(partnerId);
+      setBootstrap(data);
+      const initialScene = data.manifest.sceneVariants[0]?.id ?? "";
+      setSceneId(initialScene);
+      setReactionKey("idle_loop");
+      void session.refreshProgress(partnerId);
+      setNotice(`已切换为督学伙伴：${data.manifest.displayName}`);
+      void refreshInstalledPartners();
+    } catch (error) {
+      setNotice(`切换伙伴失败：${error instanceof Error ? error.message : "未知错误"}`);
+    }
+  };
+
 
   const preview = useMemo(() => {
     if (!bootstrap || !sceneId) return undefined;
@@ -139,6 +168,8 @@ export default function App() {
       setNotice("已取消导入");
     } else if (result.ok && result.manifest) {
       setNotice(`已安装 ${result.manifest.displayName} ${result.manifest.packVersion}`);
+      await refreshInstalledPartners();
+      await handlePartnerChange(result.manifest.partnerId);
     } else {
       setNotice(result.errors[0] ?? "伙伴包导入失败");
     }
@@ -206,8 +237,10 @@ export default function App() {
           <main className="study-room">
           <PackToolbar
             desktopRuntime={desktopRuntime}
+            installedPartners={installedPartners}
             manifest={manifest}
             onImport={() => void importPartner()}
+            onPartnerChange={(id) => void handlePartnerChange(id)}
             onSceneChange={setSceneId}
             onStart={() => setSetupOpen(true)}
             sceneId={sceneId}
@@ -215,12 +248,14 @@ export default function App() {
           />
           <div className="stage-layout">
             <MediaStage
-              coverPath={cover.filePath}
               activityLabel={session.snapshot ? SESSION_ACTIVITY_LABELS[session.snapshot.phase] : undefined}
+              assetBaseUrl={bootstrap.assetBaseUrl}
+              coverPath={cover.filePath}
               onShowOverlay={() => void showOverlay()}
               partnerName={manifest.displayName}
               preview={preview}
             />
+
             {session.snapshot ? (
               <SessionPanel
                 onCompleteFeedback={() => void session.completeFeedback()}

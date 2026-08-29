@@ -468,12 +468,13 @@ sidecar 输出示例：
 - [x] S3-017 完成加速端到端与 25 分钟模拟学习验收。
 - [x] S3-018 更新 README、架构、隐私、IPC、测试与路线图的完成状态。
 
-### P1：记录但不要阻塞阶段 3
+### P1：阶段 4 交付任务（已完成 ✅）
 
-- [ ] P1-001 已安装伙伴包列表与 UI 多伙伴切换体验。
+- [x] P1-001 已安装伙伴包列表、`partner-asset://` 特权流式协议与 UI 多伙伴切换体验。
 - [ ] P1-002 ZIP 伙伴包安装与解包安全。
 - [ ] P1-003 应用打包器、签名、安装包和自动更新。
-- [ ] P1-004 阶段 4 的白厄私有伙伴包制作流程。
+- [x] P1-004 阶段 4 的白厄私有伙伴包（星轨麦田）制作脚本与 100% 合规 Schema 验证。
+
 
 ## 7. 阶段 3 验收门禁（已全部通过 ✅）
 
@@ -538,55 +539,28 @@ sidecar 输出示例：
    - **用户定制场景**：**背景设定为“麦田”**，参考《崩坏：星穹铁道》的地图美学（金黄麦浪、星河穹顶、静谧专注、田园星轨）。
    - **Git/GitHub 纪律**：每个功能切片验证完成后必须进行 git commit 与 git push。
 
-### 8.2 下一位 Agent 的任务执行清单
+### 8.2 阶段 4 交付成果与下一阶段指引
 
-按照路线图与架构规则，下一位 Agent 请按顺序执行：
+阶段 4 已全部交付完成：
+- **任务 1：主进程与渲染进程的多伙伴切换逻辑闭环 (P1-001) ✅ 已完成**
+  - 在 `electron/main.ts` 中注册 `partner:list` 与 `partner:select` 处理器；
+  - 注册 `partner-asset://` 自定义特权安全协议，支持从各个伙伴包目录（包括私有包与已安装包）流式读取音视频与图片；
+  - 动态根据当前激活伙伴的 `relationshipLevels` 判定并解析信赖等级；
+  - 在 `src/components/PackToolbar.tsx` 与 `src/App.tsx` 中解锁伙伴下拉选择框，并在切换与导入时联动更新。
+- **任务 2：白厄私有伙伴包设计与制作 (P1-004) ✅ 已完成**
+  - 编写并执行 `scripts/generate-baie-pack.ts`，生成位于 `private-packs/baie-wheatfield` 的完整私有伙伴包；
+  - 严格版权隔离：定性为 `private-fan + private-only`，已排除在 `.gitignore` 之外；
+  - 包含「星轨麦田」（`starlight-wheatfield`）场景、10 类反应动作、12 个合规 H.264 视频与 13 条沉稳温和的守护台词，100% 通过严密 Schema 自检。
+- **任务 3：全量验证与交付 ✅ 已完成**
+  - 16 个测试文件、132 项测试全部通过；
+  - 类型检查 0 错误；
+  - 生产打包成功。
 
-#### 任务 1：主进程与渲染进程的多伙伴切换逻辑闭环 (P1-001)
-- 在 `electron/main.ts` 中注册 `partner:list` 与 `partner:select` 处理器：
-  - `partner:list`：返回所有已安装伙伴（包含内置的 `demo-guardian` 和 `userData/partners` 中已安装的伙伴）；
-  - `partner:select`：切换当前激活的伙伴，更新 activePartnerId 并返回对应的 `BootstrapData`；
-  - 注册 `partner-asset://` 自定义特权协议，支持从各个伙伴包目录（包括 `userData/partners`）安全读取图片与视频流；
-  - 更新 `SessionService` 中的信赖等级解析器，动态根据当前激活伙伴的 `relationshipLevels` 判定等级。
-- 在 `src/components/PackToolbar.tsx` 与 `src/App.tsx` 中：
-  - 解锁伙伴下拉选择框（不再是 `disabled`），展示当前伙伴和可选伙伴列表；
-  - 用户切换伙伴时，调用 `selectPartner`，动态更新舞台封面、视频预览、场景列表与当前信赖等级；
-  - 导入成功后，自动将新导入的伙伴持久化到数据库 `saveInstalledPack` 并自动切换。
+#### 阶段 5 接交指引（体验收敛）：
+1. 收集长期伴学使用中的巡查节奏与真实用户反馈；
+2. 在保持 v1 协议兼容的前提下，优化特定应用的前台规则库；
+3. 支持更多场景变体或进阶台词解锁。
 
-#### 任务 2：白厄私有伙伴包设计与制作 (P1-004)
-- **严格遵循隐私与 IP 隔离规范（AGENTS.md）**：
-  - 代码核心逻辑**绝不硬编码**“白厄”特判；
-  - 白厄包文件放置于本地私有目录（如 `private-packs/baie-wheatfield` 或用户数据目录），并在 `.gitignore` 中确保排除；
-  - 清单属性：`sourceType: "private-fan"`, `distribution: "private-only"`。
-- **场景设定【星轨麦田】（Starlight Wheatfield）**：
-  - 场景 ID：`starlight-wheatfield`，中文名：`星轨麦田`；
-  - 美术风格：金黄麦田、微风麦浪、暮色与银河星轨交织，契合崩铁地图美感。
-- **10 类反应动作与台词**（参见 `docs/10-phase4-baie-wheatfield-spec.md`）：
-  - 编写贴合白厄性格（温和、克制、坚定、陪伴）的台词。
-  - 生成封面图 `assets/cover/starlight-wheatfield.webp` 与符合 H.264 / 1080p 标准的 12 条视频。
-  - 编写生成/校验脚本（如 `scripts/generate-baie-pack.ts`），自动计算 SHA-256 和字节大小并输出完全符合 `partner-pack.v1.schema.json` 的 `manifest.json`。
-
-#### 任务 3：端到端验证与交付
-- 运行验证脚本与测试：
-  ```powershell
-  pnpm run typecheck
-  pnpm test
-  pnpm run build
-  ```
-- 启动应用进行真实验收：
-  ```powershell
-  pnpm start
-  ```
-  - 验证伙伴选择框显示 `守望者零号` 与 `白厄`；
-  - 切换至 `白厄`，查看星轨麦田封面与 10 类动作台词；
-  - 开启一场 25 分钟模拟伴学，验证整个流程流畅且无报错；
-  - 检查退出后无残留进程。
-- 执行 Git 提交并推送：
-  ```powershell
-  git add -A
-  git commit -m "feat: 阶段 4 白厄私有伙伴包（星轨麦田）与多伙伴切换系统"
-  git push origin master
-  ```
 
 ## 9. 每次交付报告模板
 
