@@ -7,3 +7,5 @@ coverage/
 resources/bin/
 **/bin/
 **/obj/
+private-packs/
+*.local

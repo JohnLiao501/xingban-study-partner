@@ -142,6 +142,16 @@ export interface OverlayPreviewPayload {
   loop: boolean;
 }
 
+export interface InstalledPartnerSummary {
+  partnerId: string;
+  packVersion: string;
+  displayName: string;
+  description: string;
+  sourceType: "private-fan" | "original";
+  distribution: "private-only" | "redistributable";
+  active: boolean;
+}
+
 import type { SessionControllerApi } from "./session.js";
 import type { AppRuleApi } from "./rules.js";
 import type { CaptureControllerApi, VisionSettingsApi, ObservationRecord } from "./inspection.js";
@@ -149,6 +159,8 @@ import type { CaptureControllerApi, VisionSettingsApi, ObservationRecord } from 
 export interface StudyPartnerApi extends SessionControllerApi, AppRuleApi, CaptureControllerApi, VisionSettingsApi {
   getBootstrapData: () => Promise<BootstrapData>;
   importPartnerDirectory: () => Promise<ImportResult>;
+  listInstalledPartners: () => Promise<InstalledPartnerSummary[]>;
+  selectPartner: (partnerId: string) => Promise<BootstrapData>;
   listSessionObservations: (sessionId: string) => Promise<ObservationRecord[]>;
   showOverlayPreview: (payload: OverlayPreviewPayload) => Promise<void>;
   hideOverlay: () => Promise<void>;

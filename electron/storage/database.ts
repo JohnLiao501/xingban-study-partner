@@ -52,6 +52,30 @@ interface AppRuleRow {
   created_at: string;
 }
 
+export interface InstalledPartnerPackRecord {
+  partnerId: string;
+  packVersion: string;
+  displayName: string;
+  sourceType: string;
+  distribution: string;
+  installPath: string;
+  manifestHash: string;
+  enabled: boolean;
+  installedAt: string;
+}
+
+interface PartnerPackRow {
+  partner_id: string;
+  pack_version: string;
+  display_name: string;
+  source_type: string;
+  distribution: string;
+  install_path: string;
+  manifest_hash: string;
+  enabled: number;
+  installed_at: string;
+}
+
 const TERMINAL_PHASES = ["completed", "aborted", "interrupted"] as const;
 
 export class XingbanDatabase {
@@ -358,6 +382,81 @@ export class XingbanDatabase {
 
   deleteAppSetting(key: string): void {
     this.database.prepare("DELETE FROM app_settings WHERE key = ?").run(key);
+  }
+
+  listInstalledPacks(): InstalledPartnerPackRecord[] {
+    const rows = this.database.prepare(`
+      SELECT partner_id, pack_version, display_name, source_type, distribution,
+             install_path, manifest_hash, enabled, installed_at
+      FROM partner_packs
+      WHERE enabled = 1
+      ORDER BY installed_at DESC
+    `).all() as unknown as PartnerPackRow[];
+
+    return rows.map((r) => ({
+      partnerId: r.partner_id,
+      packVersion: r.pack_version,
+      displayName: r.display_name,
+      sourceType: r.source_type,
+      distribution: r.distribution,
+      installPath: r.install_path,
+      manifestHash: r.manifest_hash,
+      enabled: r.enabled === 1,
+      installedAt: r.installed_at,
+    }));
+  }
+
+  saveInstalledPack(record: InstalledPartnerPackRecord): void {
+    this.database.prepare(`
+      INSERT INTO partner_packs (
+        partner_id, pack_version, display_name, source_type, distribution,
+        install_path, manifest_hash, enabled, installed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(partner_id, pack_version) DO UPDATE SET
+        display_name = excluded.display_name,
+        source_type = excluded.source_type,
+        distribution = excluded.distribution,
+        install_path = excluded.install_path,
+        manifest_hash = excluded.manifest_hash,
+        enabled = excluded.enabled,
+        installed_at = excluded.installed_at
+    `).run(
+      record.partnerId,
+      record.packVersion,
+      record.displayName,
+      record.sourceType,
+      record.distribution,
+      record.installPath,
+      record.manifestHash,
+      record.enabled ? 1 : 0,
+      record.installedAt,
+    );
+  }
+
+  deleteInstalledPack(partnerId: string, packVersion?: string): void {
+    if (packVersion) {
+      this.database.prepare(
+        "DELETE FROM partner_packs WHERE partner_id = ? AND pack_version = ?"
+      ).run(partnerId, packVersion);
+    } else {
+      this.database.prepare(
+        "DELETE FROM partner_packs WHERE partner_id = ?"
+      ).run(partnerId);
+    }
+  }
+
+  getActivePartnerId(): string | null {
+    const raw = this.getAppSetting("active_partner_id");
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as string;
+    } catch {
+      return raw;
+    }
+  }
+
+  setActivePartnerId(partnerId: string): void {
+    this.setAppSetting("active_partner_id", JSON.stringify(partnerId));
   }
 
   private migrate(): void {

@@ -18,6 +18,8 @@ import type { AppRule, SaveAppRuleInput } from "../shared/rules.js";
 const api: StudyPartnerApi = {
   getBootstrapData: () => ipcRenderer.invoke("app:get-bootstrap") as Promise<BootstrapData>,
   importPartnerDirectory: () => ipcRenderer.invoke("partner:import-directory") as Promise<ImportResult>,
+  listInstalledPartners: () => ipcRenderer.invoke("partner:list") as Promise<any>,
+  selectPartner: (partnerId: string) => ipcRenderer.invoke("partner:select", partnerId) as Promise<BootstrapData>,
   showOverlayPreview: (payload) => ipcRenderer.invoke("overlay:show-preview", payload) as Promise<void>,
   hideOverlay: () => ipcRenderer.invoke("overlay:hide") as Promise<void>,
   onOverlayPreview: (listener) => {

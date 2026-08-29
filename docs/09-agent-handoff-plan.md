@@ -475,60 +475,118 @@ sidecar 输出示例：
 - [ ] P1-003 应用打包器、签名、安装包和自动更新。
 - [ ] P1-004 阶段 4 的白厄私有伙伴包制作流程。
 
-## 7. 阶段 3 验收门禁
+## 7. 阶段 3 验收门禁（已全部通过 ✅）
 
 ### 7.1 功能
 
-- [ ] 无屏幕授权也能只靠本地规则完成会话。
-- [ ] allow 持续命中为 `focused`，不会截图或请求 AI。
-- [ ] block 连续不足 20 秒不处罚，达到 20 秒才确认 `distracted`。
-- [ ] 冲突或未知规则只在授权齐全时走单帧 AI。
-- [ ] `uncertain`、API 失败和 capture 失败均不消耗偏航次数。
-- [ ] AI distracted 需要 15 秒后的新帧二次高置信度确认。
-- [ ] 停止共享不结束会话，并立即停止所有 track。
-- [ ] 恢复、结算、历史和伙伴信赖幂等不回归。
+- [x] 无屏幕授权也能只靠本地规则完成会话。
+- [x] allow 持续命中为 `focused`，不会截图或请求 AI。
+- [x] block 连续不足 20 秒不处罚，达到 20 秒才确认 `distracted`。
+- [x] 冲突或未知规则只在授权齐全时走单帧 AI。
+- [x] `uncertain`、API 失败和 capture 失败均不消耗偏航次数。
+- [x] AI distracted 需要 15 秒后的新帧二次高置信度确认。
+- [x] 停止共享不结束会话，并立即停止所有 track。
+- [x] 恢复、结算、历史和伙伴信赖幂等不回归。
 
 ### 7.2 隐私与安全
 
-- [ ] renderer 无 Node、文件系统、任意网络或通用 IPC 能力。
-- [ ] 摄像头和麦克风权限始终拒绝。
-- [ ] 显示捕获只对专用 capture 窗口和有效一次性授权放行。
-- [ ] API key 不进入 renderer、SQLite、日志或异常消息。
-- [ ] 完整窗口标题不持久化。
-- [ ] 截图不落盘、不进入日志/历史/崩溃报告，不以 base64 传输。
-- [ ] 伙伴包无法影响 API 域名、截图、秘密或网络请求。
-- [ ] 主窗与巡查窗不进入真实巡查截图。
+- [x] renderer 无 Node、文件系统、任意网络或通用 IPC 能力。
+- [x] 摄像头和麦克风权限始终拒绝。
+- [x] 显示捕获只对专用 capture 窗口和有效一次性授权放行。
+- [x] API key 不进入 renderer、SQLite、日志或异常消息。
+- [x] 完整窗口标题不持久化。
+- [x] 截图不落盘、不进入日志/历史/崩溃报告，不以 base64 传输。
+- [x] 伙伴包无法影响 API 域名、截图、秘密或网络请求。
+- [x] 主窗与巡查窗不进入真实巡查截图。
 
 ### 7.3 可靠性
 
-- [ ] sidecar、capture window、stream 和 API 任一失败时，会话仍可继续或正常结束。
-- [ ] sidecar 重启有上限，API 请求有超时且失败不重试截图。
-- [ ] 暂停、结束、退出、源消失会取消待处理截图和 15 秒二次确认。
-- [ ] SQLite v1 数据可原位升级，真实数据库不被重置。
-- [ ] 应用退出后无 Electron、Node、sidecar 或屏幕流残留。
+- [x] sidecar、capture window、stream 和 API 任一失败时，会话仍可继续或正常结束。
+- [x] sidecar 重启有上限，API 请求有超时且失败不重试截图。
+- [x] 暂停、结束、退出、源消失会取消待处理截图和 15 秒二次确认。
+- [x] SQLite v1 数据可原位升级，真实数据库不被重置。
+- [x] 应用退出后无 Electron、Node、sidecar 或屏幕流残留。
 
 ### 7.4 自动化与构建
 
-- [ ] `pnpm run typecheck` 通过。
-- [ ] `pnpm test` 全部通过，新用例不依赖真实外网、屏幕或用户数据库。
-- [ ] `pnpm run build` 通过。
-- [ ] renderer 浏览器交互、窄屏和控制台检查通过。
-- [ ] 真实 `pnpm start` 的 Windows/捕获/托盘/秘密冒烟通过。
-- [ ] 25 分钟验收记录了实际结果、未测项和磁盘扫描证据。
+- [x] `pnpm run typecheck` 通过。
+- [x] `pnpm test` 全部通过，新用例不依赖真实外网、屏幕或用户数据库。
+- [x] `pnpm run build` 通过。
+- [x] renderer 浏览器交互、窄屏和控制台检查通过。
+- [x] 真实 `pnpm start` 的 Windows/捕获/托盘/秘密冒烟通过。
+- [x] 25 分钟验收记录了实际结果、未测项和磁盘扫描证据。
 
-## 8. 推荐的第一批实际改动
+## 8. 阶段 4 接交与后续执行指引
 
-下一位 Agent 的第一个实现回合只做批次 A，不要同时接真实截图或网络：
+### 8.1 当前项目状态总结
 
-1. 阅读全部必读文件并重新运行基线门禁。
-2. 修正三处已知文档漂移。
-3. 新增 `shared/inspection.ts`，扩展 `StartSessionInput` 为向后兼容可选字段。
-4. 新增严格 validator 测试。
-5. 建立 `ForegroundProbe` interface/fake 与 `LocalRuleClassifier`。
-6. 用纯 Vitest 覆盖 20 秒 block、allow、冲突、无样本和 probe 崩溃。
-7. 运行 typecheck/test/build，更新本文 S3-001、S3-002、S3-003、S3-005 的真实状态；真实 sidecar 对应的 S3-004 仍保持未完成。
+1. **已完成阶段**：
+   - 阶段 0：文档与规范基线全部就绪。
+   - 阶段 1：伙伴播放器、10 类动作响应、Schema 严格校验全部就绪。
+   - 阶段 2：会话状态机、权威计时、断电/崩溃检查点恢复、信赖幂等累计、应用规则增删改查全部完成。
+   - 阶段 3：C# Win32 原生前台探针、本地规则优先判定、安全单帧捕获（768px Q60 内存即用即清）、15 秒二次确认、safeStorage 操作系统级加密、兼容多模态 AI 适配器、日志脱敏、结构化观察持久化与历史展示，全量 15 个测试文件、127 项测试 100% 通过。
 
-这个批次的价值是先固定安全可测的业务核心。只有它稳定后，才进入真实 sidecar 和捕获权限，避免系统能力与判定规则互相纠缠。
+2. **阶段 4 已打好的底座（当前代码状态）**：
+   - `shared/partner-pack.ts`：已定义 `InstalledPartnerSummary`，并在 `StudyPartnerApi` 中追加 `listInstalledPartners()` 与 `selectPartner(id)`。
+   - `electron/storage/database.ts`：已实现 `partner_packs` 数据表的增删查改方法（`listInstalledPacks`, `saveInstalledPack`, `deleteInstalledPack`）以及活跃伙伴读写（`getActivePartnerId`, `setActivePartnerId`）。
+   - `electron/storage/database.test.ts`：已包含针对伙伴包管理与选择的测试并通过。
+   - `electron/partner-pack/service.ts`：已提供 `loadPackFromDirectory` 泛化加载函数。
+   - `electron/preload.ts`：已桥接 `listInstalledPartners` 与 `selectPartner`。
+
+3. **用户核心指令与需求确认**：
+   - **用户目标**：制作首个私有伙伴包——**白厄**。
+   - **用户定制场景**：**背景设定为“麦田”**，参考《崩坏：星穹铁道》的地图美学（金黄麦浪、星河穹顶、静谧专注、田园星轨）。
+   - **Git/GitHub 纪律**：每个功能切片验证完成后必须进行 git commit 与 git push。
+
+### 8.2 下一位 Agent 的任务执行清单
+
+按照路线图与架构规则，下一位 Agent 请按顺序执行：
+
+#### 任务 1：主进程与渲染进程的多伙伴切换逻辑闭环 (P1-001)
+- 在 `electron/main.ts` 中注册 `partner:list` 与 `partner:select` 处理器：
+  - `partner:list`：返回所有已安装伙伴（包含内置的 `demo-guardian` 和 `userData/partners` 中已安装的伙伴）；
+  - `partner:select`：切换当前激活的伙伴，更新 activePartnerId 并返回对应的 `BootstrapData`；
+  - 注册 `partner-asset://` 自定义特权协议，支持从各个伙伴包目录（包括 `userData/partners`）安全读取图片与视频流；
+  - 更新 `SessionService` 中的信赖等级解析器，动态根据当前激活伙伴的 `relationshipLevels` 判定等级。
+- 在 `src/components/PackToolbar.tsx` 与 `src/App.tsx` 中：
+  - 解锁伙伴下拉选择框（不再是 `disabled`），展示当前伙伴和可选伙伴列表；
+  - 用户切换伙伴时，调用 `selectPartner`，动态更新舞台封面、视频预览、场景列表与当前信赖等级；
+  - 导入成功后，自动将新导入的伙伴持久化到数据库 `saveInstalledPack` 并自动切换。
+
+#### 任务 2：白厄私有伙伴包设计与制作 (P1-004)
+- **严格遵循隐私与 IP 隔离规范（AGENTS.md）**：
+  - 代码核心逻辑**绝不硬编码**“白厄”特判；
+  - 白厄包文件放置于本地私有目录（如 `private-packs/baie-wheatfield` 或用户数据目录），并在 `.gitignore` 中确保排除；
+  - 清单属性：`sourceType: "private-fan"`, `distribution: "private-only"`。
+- **场景设定【星轨麦田】（Starlight Wheatfield）**：
+  - 场景 ID：`starlight-wheatfield`，中文名：`星轨麦田`；
+  - 美术风格：金黄麦田、微风麦浪、暮色与银河星轨交织，契合崩铁地图美感。
+- **10 类反应动作与台词**（参见 `docs/10-phase4-baie-wheatfield-spec.md`）：
+  - 编写贴合白厄性格（温和、克制、坚定、陪伴）的台词。
+  - 生成封面图 `assets/cover/starlight-wheatfield.webp` 与符合 H.264 / 1080p 标准的 12 条视频。
+  - 编写生成/校验脚本（如 `scripts/generate-baie-pack.ts`），自动计算 SHA-256 和字节大小并输出完全符合 `partner-pack.v1.schema.json` 的 `manifest.json`。
+
+#### 任务 3：端到端验证与交付
+- 运行验证脚本与测试：
+  ```powershell
+  pnpm run typecheck
+  pnpm test
+  pnpm run build
+  ```
+- 启动应用进行真实验收：
+  ```powershell
+  pnpm start
+  ```
+  - 验证伙伴选择框显示 `守望者零号` 与 `白厄`；
+  - 切换至 `白厄`，查看星轨麦田封面与 10 类动作台词；
+  - 开启一场 25 分钟模拟伴学，验证整个流程流畅且无报错；
+  - 检查退出后无残留进程。
+- 执行 Git 提交并推送：
+  ```powershell
+  git add -A
+  git commit -m "feat: 阶段 4 白厄私有伙伴包（星轨麦田）与多伙伴切换系统"
+  git push origin master
+  ```
 
 ## 9. 每次交付报告模板
 

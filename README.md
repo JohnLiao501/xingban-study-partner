@@ -49,6 +49,7 @@
 - [测试与验收](docs/07-testing-and-acceptance.md)
 - [路线图](docs/08-roadmap.md)
 - [下一位 AI Agent 交接与后续执行计划](docs/09-agent-handoff-plan.md)
+- [阶段 4：白厄私有伙伴包（星轨麦田）制作手册](docs/10-phase4-baie-wheatfield-spec.md)
 - [AI Agent 项目执行规则](AGENTS.md)
 - [伙伴包 JSON Schema](schemas/partner-pack.v1.schema.json)
 - [无版权示例清单](examples/demo-partner/manifest.json)

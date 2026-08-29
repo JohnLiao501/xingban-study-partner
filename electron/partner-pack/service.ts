@@ -180,14 +180,21 @@ export async function installPackDirectory(
   }
 }
 
+export async function loadPackFromDirectory(
+  directory: string,
+  schemaPath: string,
+): Promise<PartnerPackManifestV1> {
+  const result = await validatePackDirectory(directory, schemaPath);
+  if (!result.ok || !result.manifest) {
+    throw new Error(result.errors.join("\n"));
+  }
+  return result.manifest;
+}
+
 export async function loadBundledDemo(
   projectRoot: string,
 ): Promise<PartnerPackManifestV1> {
   const demoRoot = path.join(projectRoot, "examples", "demo-partner");
   const schemaPath = path.join(projectRoot, "schemas", "partner-pack.v1.schema.json");
-  const result = await validatePackDirectory(demoRoot, schemaPath);
-  if (!result.ok || !result.manifest) {
-    throw new Error(result.errors.join("\n"));
-  }
-  return result.manifest;
+  return loadPackFromDirectory(demoRoot, schemaPath);
 }

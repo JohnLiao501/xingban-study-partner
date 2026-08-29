@@ -179,4 +179,40 @@ describe("XingbanDatabase", () => {
 
     database.close();
   });
+
+  it("manages installed partner packs and active partner selection", () => {
+    const database = new XingbanDatabase(":memory:");
+
+    // 初始状态下无已安装包，活跃伙伴为空
+    expect(database.listInstalledPacks()).toEqual([]);
+    expect(database.getActivePartnerId()).toBeNull();
+
+    // 记录安装伙伴包
+    database.saveInstalledPack({
+      partnerId: "baie-private",
+      packVersion: "1.0.0",
+      displayName: "白厄",
+      sourceType: "private-fan",
+      distribution: "private-only",
+      installPath: "C:\\mock\\partners\\baie-private\\1.0.0",
+      manifestHash: "abc123456",
+      enabled: true,
+      installedAt: "2026-08-29T10:00:00.000Z",
+    });
+
+    const list = database.listInstalledPacks();
+    expect(list).toHaveLength(1);
+    expect(list[0].partnerId).toBe("baie-private");
+    expect(list[0].displayName).toBe("白厄");
+
+    // 设置与获取活跃伙伴
+    database.setActivePartnerId("baie-private");
+    expect(database.getActivePartnerId()).toBe("baie-private");
+
+    // 删除伙伴包
+    database.deleteInstalledPack("baie-private", "1.0.0");
+    expect(database.listInstalledPacks()).toHaveLength(0);
+
+    database.close();
+  });
 });
