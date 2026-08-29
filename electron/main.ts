@@ -123,15 +123,15 @@ function getPartnerDirectory(partnerId: string): string | null {
 
 
 function createTrayIcon(): Electron.NativeImage {
-  const svg = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
-      <path fill="#79bbff" d="M16 2l3.1 8.9L28 14l-8.9 3.1L16 26l-3.1-8.9L4 14l8.9-3.1L16 2z"/>
-      <circle cx="16" cy="14" r="3.2" fill="#f7fbff"/>
-    </svg>`;
-  return nativeImage
-    .createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`)
-    .resize({ width: 16, height: 16 });
+  const iconPath = path.join(projectRoot, "resources", "icons", "tray.png");
+  if (fs.existsSync(iconPath)) {
+    return nativeImage.createFromPath(iconPath);
+  }
+  const base64Png =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAGcSURBVFhH1ZcxS8RAEIWvtPQnWFr6E/wJlpaWlnbJCnLaaCnYXGGRwsLCwka4S1YJdhYWNiIih72Fgggi4oxM9uIlb43ecbcjfvCa7CTvZXezu2m1/jvtnGfwmirG8iZeUyXO6Kmd8yxeVyGyvGgss0lpGdtUkO4vAlhKsE0Fk1E+CHCPbcGRcXfmA/V4HmuCYnq8VA0QZ7SGNUExljq1AJaOsSYoMu7QA69qi1LU5bna+A8knyXWTh2ZfHFGO2juRJ0gi5I8NEp5RcbZN/UldVI/UZhRTfcvnTbO/Laxw4xqKhLD/iN/8fDCvJX7dSOFcZOKErzhJx1cDc1LTm79umZRIr61IG5xoUR2OP+Guo6u0Z65d+fXVeWeS4n41Iy/47cw2+fMz29D8/cP5r0Lv24s0yaawkiI075T1Xwqpk0UYTLq4psWkt0xhCmynvKCZy7SMC/B4RB5n1dIYkuH2P1YExRZUKAHdE/HuCOq7IRIbOlGzGU+YJsKxtJuEUD7NFRSngvjjFaxTQU5gslRzNtUNPmzn5KSSd/+E8NPF71V73PoAAAAAElFTkSuQmCC";
+  return nativeImage.createFromDataURL(base64Png);
 }
+
 
 function hardenWindow(window: BrowserWindow): void {
   window.webContents.setWindowOpenHandler(({ url }) => {
@@ -248,8 +248,23 @@ function createCaptureWindow(): BrowserWindow {
 
 function createTray(): Tray {
   const appTray = new Tray(createTrayIcon());
-  appTray.setToolTip("星伴");
+  appTray.setToolTip("星伴 - AI 伴学");
+  appTray.on("click", () => {
+    if (mainWindow) {
+      if (mainWindow.isVisible()) {
+        if (mainWindow.isFocused()) {
+          mainWindow.hide();
+        } else {
+          mainWindow.focus();
+        }
+      } else {
+        mainWindow.show();
+        mainWindow.focus();
+      }
+    }
+  });
   appTray.setContextMenu(Menu.buildFromTemplate([
+
     {
       label: "打开督学室",
       click: () => {
