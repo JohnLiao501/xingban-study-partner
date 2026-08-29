@@ -40,6 +40,10 @@ import { PermissionManager } from "./security/permission-manager.js";
 import { SecretStore } from "./security/secret-store.js";
 import { ElectronCaptureService } from "./capture/capture-service.js";
 import { OpenAiVisionAdapter } from "./vision/openai-vision-adapter.js";
+import { WindowsForegroundProbe } from "./inspection/windows-foreground-probe.js";
+import { LocalRuleClassifier } from "./inspection/local-rule-classifier.js";
+import { InspectionEngine } from "./inspection/inspection-engine.js";
+import { mapInspectionToObservationParams } from "./inspection/observation.js";
 import type { SaveVisionSettingsInput, VisionSettingsView } from "../shared/inspection.js";
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -52,6 +56,8 @@ const permissionManager = new PermissionManager();
 let captureService: ElectronCaptureService | null = null;
 let secretStore: SecretStore | null = null;
 let visionAdapter: OpenAiVisionAdapter | null = null;
+let foregroundProbe: WindowsForegroundProbe | null = null;
+let inspectionEngine: InspectionEngine | null = null;
 
 const SETTINGS_KEY_VISION = "vision_settings";
 const DEFAULT_VISION_CONFIG = {
@@ -298,12 +304,62 @@ function registerIpc(): void {
   });
   ipcMain.handle("overlay:hide", () => overlayWindow?.hide());
   ipcMain.handle("session:get-active", () => sessionService?.getActive() ?? null);
-  ipcMain.handle("session:start", (_event, input: unknown) => {
+  ipcMain.handle("session:start", async (_event, input: unknown) => {
     if (!isStartSessionInput(input)) throw new Error("IPC_INVALID_PAYLOAD");
-    return sessionService?.start(input);
+
+    // 1. 若选择了屏幕，启动捕获服务
+    if (input.captureSourceId && captureService) {
+      await captureService.startCapture(input.captureSourceId);
+    }
+
+    // 2. 启动 Windows 前台探针
+    try {
+      foregroundProbe?.start(() => {});
+    } catch {}
+
+    // 3. 启动会话核心
+    const snapshot = sessionService?.start(input);
+    if (!snapshot) return null;
+
+    // 4. 组装并初始化 InspectionEngine
+    const allRules = database?.listAppRules() ?? [];
+    const activeRules = allRules.filter((r) => {
+      if (!r.enabled) return false;
+      if (r.decision === "allow" && input.allowRuleIds) return input.allowRuleIds.includes(r.id);
+      if (r.decision === "block" && input.blockRuleIds) return input.blockRuleIds.includes(r.id);
+      return true;
+    });
+
+    if (foregroundProbe && captureService && visionAdapter) {
+      inspectionEngine = new InspectionEngine({
+        sessionId: snapshot.sessionId,
+        goal: snapshot.goal,
+        visionEnabled: Boolean(input.visionEnabled),
+        sendWindowTitle: Boolean(input.sendWindowTitle),
+        rules: activeRules,
+        probe: foregroundProbe,
+        classifier: new LocalRuleClassifier(),
+        captureService,
+        visionAdapter,
+        onConfirmDeviation: (id) => {
+          sessionService?.recordObservation(id, "distracted");
+        },
+        onObservation: (result, confirmed) => {
+          if (database) {
+            database.recordStructuredObservation(
+              mapInspectionToObservationParams(snapshot.sessionId, result, confirmed),
+            );
+          }
+        },
+      });
+    }
+
+    return snapshot;
   });
-  ipcMain.handle("session:pause", (_event, sessionId: unknown) =>
-    sessionService?.pause(requireSessionId(sessionId)));
+  ipcMain.handle("session:pause", (_event, sessionId: unknown) => {
+    inspectionEngine?.cancelPendingConfirmation();
+    return sessionService?.pause(requireSessionId(sessionId));
+  });
   ipcMain.handle("session:resume", (_event, sessionId: unknown) =>
     sessionService?.resume(requireSessionId(sessionId)));
   ipcMain.handle("session:preview-patrol", (_event, sessionId: unknown) =>
@@ -320,10 +376,14 @@ function registerIpc(): void {
     sessionService?.completeFeedback(requireSessionId(sessionId)));
   ipcMain.handle("session:start-break", (_event, sessionId: unknown) =>
     sessionService?.startBreak(requireSessionId(sessionId)));
-  ipcMain.handle("session:finish", (_event, sessionId: unknown, mode: unknown) => {
+  ipcMain.handle("session:finish", async (_event, sessionId: unknown, mode: unknown) => {
     if (mode !== "completed" && mode !== "aborted" && mode !== "interrupted") {
       throw new Error("IPC_INVALID_PAYLOAD");
     }
+    inspectionEngine?.dispose();
+    inspectionEngine = null;
+    await captureService?.stopCapture();
+    foregroundProbe?.stop();
     return sessionService?.finish(requireSessionId(sessionId), mode as SessionFinishMode);
   });
   ipcMain.handle("history:list", (_event, limit: unknown) => {
@@ -459,9 +519,23 @@ app.whenReady().then(async () => {
     getApiKey: () => secretStore?.getApiKey() ?? null,
   });
 
+  foregroundProbe = new WindowsForegroundProbe();
+
   sessionService = new SessionService((snapshot) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("session:changed", snapshot);
+    }
+    // 巡查阶段自动调用巡查编排引擎执行判断
+    if (snapshot.phase === "patrolling" && inspectionEngine) {
+      void inspectionEngine.inspectOnce().then((result) => {
+        if (sessionService?.getActive()?.phase === "patrolling") {
+          sessionService.recordObservation(snapshot.sessionId, result.label);
+        }
+      }).catch(() => {
+        if (sessionService?.getActive()?.phase === "patrolling") {
+          sessionService.recordObservation(snapshot.sessionId, "uncertain");
+        }
+      });
     }
   }, database, (partnerId, totalTrust) => {
     if (bundledDemo?.partnerId !== partnerId) return "initial";
@@ -492,6 +566,9 @@ app.on("activate", () => {
 
 app.on("before-quit", () => {
   isQuitting = true;
+  inspectionEngine?.dispose();
+  inspectionEngine = null;
+  foregroundProbe?.stop();
   void captureService?.stopCapture();
   sessionService?.dispose();
   database?.close();

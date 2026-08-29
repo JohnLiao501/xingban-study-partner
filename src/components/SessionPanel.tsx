@@ -1,8 +1,10 @@
+import { useState, useEffect } from "react";
 import {
   remainingDeviationAllowance,
   remainingFocusSeconds,
 } from "../../shared/session-engine";
 import type { ObservationLabel, SessionFinishMode, SessionSnapshot } from "../../shared/session";
+import type { CaptureStatus } from "../../shared/inspection";
 
 interface SessionPanelProps {
   snapshot: SessionSnapshot;
@@ -52,6 +54,20 @@ export function SessionPanel({
   const progress = Math.min(100, snapshot.focusedSeconds / snapshot.plannedSeconds * 100);
   const isTerminal = Boolean(snapshot.outcome);
 
+  const [captureStatus, setCaptureStatus] = useState<CaptureStatus>("inactive");
+
+  useEffect(() => {
+    const api = window.studyPartner;
+    if (!api?.onCaptureStatusChanged) return;
+    return api.onCaptureStatusChanged((status) => {
+      setCaptureStatus(status);
+    });
+  }, []);
+
+  const handleStopCapture = () => {
+    void window.studyPartner?.stopCapture();
+  };
+
   return (
     <aside className="session-panel" aria-label="当前学习会话">
       <header className="session-panel__header">
@@ -63,6 +79,27 @@ export function SessionPanel({
           {snapshot.paused ? "已暂停" : PHASE_LABELS[snapshot.phase]}
         </span>
       </header>
+
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 12px", background: "rgba(255,255,255,0.03)", borderRadius: "6px", fontSize: "12px" }}>
+        <span>
+          🛡️ 本地探针生效中
+          {captureStatus === "active" ? (
+            <span style={{ marginLeft: "8px", color: "#10b981" }}>● 屏幕巡查开启</span>
+          ) : (
+            <span style={{ marginLeft: "8px", color: "var(--color-text-secondary, #94a3b8)" }}>○ 仅本地规则</span>
+          )}
+        </span>
+        {captureStatus === "active" ? (
+          <button
+            onClick={handleStopCapture}
+            style={{ background: "transparent", border: "1px solid rgba(239, 68, 68, 0.4)", color: "#ef4444", borderRadius: "4px", padding: "2px 8px", cursor: "pointer", fontSize: "11px" }}
+            title="关闭屏幕抓取，保留本地规则继续伴学"
+            type="button"
+          >
+            停止屏幕共享
+          </button>
+        ) : null}
+      </div>
 
       {snapshot.recoveredFromCheckpoint ? (
         <div className="session-recovery-banner" role="status">
