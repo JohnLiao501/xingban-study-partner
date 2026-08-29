@@ -457,8 +457,8 @@ sidecar 输出示例：
 - [x] S3-006 以默认拒绝策略收紧 Electron 媒体/显示捕获权限。
 - [x] S3-007 实现显式源选择、一次性授权、单帧缩放与二进制传输。
 - [x] S3-008 实现停止共享、源结束、窗口销毁和并发/超时处理。
-- [ ] S3-009 实现 InspectionEngine 的 local-first 编排。
-- [ ] S3-010 实现 AI distracted 的 15 秒新帧二次确认与取消逻辑。
+- [x] S3-009 实现 InspectionEngine 的 local-first 编排。
+- [x] S3-010 实现 AI distracted 的 15 秒新帧二次确认与取消逻辑。
 - [ ] S3-011 实现 safeStorage SecretStore 与脱敏设置 IPC。
 - [ ] S3-012 实现兼容 VisionAdapter、严格 JSON 校验和失败降级。
 - [ ] S3-013 扩展会话设置、状态、主界面停止和托盘停止控制。

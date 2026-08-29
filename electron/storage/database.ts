@@ -9,6 +9,7 @@ import type {
   SessionHistoryEntry,
   SessionSnapshot,
 } from "../../shared/session.js";
+import type { CreateStructuredObservationParams } from "../inspection/observation.js";
 
 interface SessionRow {
   checkpoint_json: string;
@@ -158,6 +159,25 @@ export class XingbanDatabase {
       label,
       label === "uncertain" ? 0 : 1,
       confirmedDeviation,
+    );
+  }
+
+  recordStructuredObservation(params: CreateStructuredObservationParams): void {
+    this.database.prepare(`
+      INSERT INTO observations (
+        id, session_id, observed_at, label, confidence, source, reason_code,
+        app_name, window_title_hash, confirmed_deviation
+      ) VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      params.sessionId,
+      params.observedAt ?? new Date().toISOString(),
+      params.label,
+      params.confidence,
+      params.source,
+      params.reasonCode,
+      params.appName,
+      params.windowTitleHash,
+      params.confirmedDeviation ? 1 : 0,
     );
   }
 
