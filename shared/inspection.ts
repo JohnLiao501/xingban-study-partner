@@ -37,6 +37,25 @@ export interface InspectionResult {
 export const CAPTURE_STATUSES = ["inactive", "active", "stopped", "failed"] as const;
 export type CaptureStatus = (typeof CAPTURE_STATUSES)[number];
 
+/** 屏幕捕获源脱敏摘要 */
+export interface CaptureSourceSummary {
+  id: string;
+  name: string;
+}
+
+/** 屏幕捕获 IPC 控制契约 */
+export interface CaptureControllerApi {
+  listCaptureSources: () => Promise<CaptureSourceSummary[]>;
+  stopCapture: () => Promise<void>;
+  onCaptureStatusChanged: (listener: (status: CaptureStatus) => void) => () => void;
+  // 截图工作窗口专用通道
+  onCaptureInitStream?: (listener: (payload: { sourceId: string }) => void) => () => void;
+  onCaptureRequestFrame?: (listener: () => void) => () => void;
+  onCaptureStopStream?: (listener: () => void) => () => void;
+  sendCaptureFrame?: (frameData: Uint8Array | null) => Promise<void>;
+  notifyCaptureStreamEnded?: () => Promise<void>;
+}
+
 export interface VisionSettingsView {
   baseUrl: string;
   model: string;

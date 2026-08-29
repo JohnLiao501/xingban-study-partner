@@ -36,12 +36,17 @@ import {
 } from "./partner-pack/service.js";
 import { SessionService } from "./session/service.js";
 import { XingbanDatabase } from "./storage/database.js";
+import { PermissionManager } from "./security/permission-manager.js";
+import { ElectronCaptureService } from "./capture/capture-service.js";
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(currentDirectory, "..", "..");
 const preloadPath = path.join(currentDirectory, "preload.js");
 const rendererPath = path.join(projectRoot, "dist-renderer", "index.html");
 const schemaPath = path.join(projectRoot, "schemas", "partner-pack.v1.schema.json");
+
+const permissionManager = new PermissionManager();
+let captureService: ElectronCaptureService | null = null;
 
 let mainWindow: BrowserWindow | undefined;
 let overlayWindow: BrowserWindow | undefined;
@@ -155,6 +160,8 @@ function createCaptureWindow(): BrowserWindow {
       backgroundThrottling: false,
     },
   });
+  window.setContentProtection(true);
+  permissionManager.setCaptureWebContentsId(window.webContents.id);
   hardenWindow(window);
   void loadRenderer(window, "capture");
   return window;
@@ -174,6 +181,12 @@ function createTray(): Tray {
     {
       label: "隐藏巡查窗",
       click: () => overlayWindow?.hide(),
+    },
+    {
+      label: "停止屏幕巡查",
+      click: () => {
+        void captureService?.stopCapture();
+      },
     },
     { type: "separator" },
     {
@@ -327,6 +340,20 @@ function registerIpc(): void {
     }
     database?.deleteAppRule(id);
   });
+  ipcMain.handle("capture:list-sources", async () => {
+    return captureService ? await captureService.listSources() : [];
+  });
+  ipcMain.handle("capture:stop", async () => {
+    await captureService?.stopCapture();
+  });
+  ipcMain.handle("capture:send-frame", (_event, frameData: unknown) => {
+    if (frameData instanceof Uint8Array || frameData === null) {
+      captureService?.handleIncomingFrame(frameData);
+    }
+  });
+  ipcMain.handle("capture:stream-ended", () => {
+    captureService?.handleStreamEnded();
+  });
   ipcMain.handle("window:minimize", (event) => senderWindow(event)?.minimize());
   ipcMain.handle("window:toggle-maximize", (event) => {
     const window = senderWindow(event);
@@ -341,8 +368,13 @@ function registerIpc(): void {
 app.setAppUserModelId("com.xingban.study-partner");
 
 app.whenReady().then(async () => {
-  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
-    callback(permission === "media");
+  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    const allowed = permissionManager.shouldAllowPermission(
+      webContents.id,
+      permission,
+      details as { mediaTypes?: string[] },
+    );
+    callback(allowed);
   });
   bundledDemo = await loadBundledDemo(projectRoot);
   database = new XingbanDatabase(path.join(app.getPath("userData"), "xingban.sqlite3"));
@@ -361,6 +393,14 @@ app.whenReady().then(async () => {
   mainWindow = createMainWindow();
   overlayWindow = createOverlayWindow();
   captureWindow = createCaptureWindow();
+
+  captureService = new ElectronCaptureService(() => captureWindow ?? null, permissionManager);
+  captureService.onStatusChange((status) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("capture:status-changed", status);
+    }
+  });
+
   tray = createTray();
 });
 
@@ -371,6 +411,7 @@ app.on("activate", () => {
 
 app.on("before-quit", () => {
   isQuitting = true;
+  void captureService?.stopCapture();
   sessionService?.dispose();
   database?.close();
 });

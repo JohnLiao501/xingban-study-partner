@@ -144,8 +144,9 @@ export interface OverlayPreviewPayload {
 
 import type { SessionControllerApi } from "./session.js";
 import type { AppRuleApi } from "./rules.js";
+import type { CaptureControllerApi } from "./inspection.js";
 
-export interface StudyPartnerApi extends SessionControllerApi, AppRuleApi {
+export interface StudyPartnerApi extends SessionControllerApi, AppRuleApi, CaptureControllerApi {
   getBootstrapData: () => Promise<BootstrapData>;
   importPartnerDirectory: () => Promise<ImportResult>;
   showOverlayPreview: (payload: OverlayPreviewPayload) => Promise<void>;

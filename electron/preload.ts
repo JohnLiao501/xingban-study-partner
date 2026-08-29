@@ -42,6 +42,38 @@ const api: StudyPartnerApi = {
   listAppRules: () => ipcRenderer.invoke("rules:list") as Promise<AppRule[]>,
   saveAppRule: (input: SaveAppRuleInput) => ipcRenderer.invoke("rules:save", input) as Promise<AppRule>,
   deleteAppRule: (id: string) => ipcRenderer.invoke("rules:delete", id) as Promise<void>,
+  listCaptureSources: () => ipcRenderer.invoke("capture:list-sources") as Promise<any>,
+  stopCapture: () => ipcRenderer.invoke("capture:stop") as Promise<void>,
+  onCaptureStatusChanged: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, status: any) => {
+      listener(status);
+    };
+    ipcRenderer.on("capture:status-changed", handler);
+    return () => ipcRenderer.removeListener("capture:status-changed", handler);
+  },
+  onCaptureInitStream: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: { sourceId: string }) => {
+      listener(payload);
+    };
+    ipcRenderer.on("capture:init-stream", handler);
+    return () => ipcRenderer.removeListener("capture:init-stream", handler);
+  },
+  onCaptureRequestFrame: (listener) => {
+    const handler = () => {
+      listener();
+    };
+    ipcRenderer.on("capture:request-frame", handler);
+    return () => ipcRenderer.removeListener("capture:request-frame", handler);
+  },
+  onCaptureStopStream: (listener) => {
+    const handler = () => {
+      listener();
+    };
+    ipcRenderer.on("capture:stop-stream", handler);
+    return () => ipcRenderer.removeListener("capture:stop-stream", handler);
+  },
+  sendCaptureFrame: (frameData) => ipcRenderer.invoke("capture:send-frame", frameData) as Promise<void>,
+  notifyCaptureStreamEnded: () => ipcRenderer.invoke("capture:stream-ended") as Promise<void>,
   onSessionChanged: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, snapshot: SessionSnapshot) => {
       listener(snapshot);

@@ -454,9 +454,9 @@ sidecar 输出示例：
 - [x] S3-003 建立 ForegroundProbe 接口、fake、状态和 parser 测试。
 - [x] S3-004 实现并打包 Windows x64 sidecar，完成崩溃/重启/停止验证。
 - [x] S3-005 实现 LocalRuleClassifier 与 20 秒持续 block 边界测试。
-- [ ] S3-006 以默认拒绝策略收紧 Electron 媒体/显示捕获权限。
-- [ ] S3-007 实现显式源选择、一次性授权、单帧缩放与二进制传输。
-- [ ] S3-008 实现停止共享、源结束、窗口销毁和并发/超时处理。
+- [x] S3-006 以默认拒绝策略收紧 Electron 媒体/显示捕获权限。
+- [x] S3-007 实现显式源选择、一次性授权、单帧缩放与二进制传输。
+- [x] S3-008 实现停止共享、源结束、窗口销毁和并发/超时处理。
 - [ ] S3-009 实现 InspectionEngine 的 local-first 编排。
 - [ ] S3-010 实现 AI distracted 的 15 秒新帧二次确认与取消逻辑。
 - [ ] S3-011 实现 safeStorage SecretStore 与脱敏设置 IPC。

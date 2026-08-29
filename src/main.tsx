@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import { OverlayView } from "./OverlayView";
+import { CaptureView } from "./CaptureView";
 import "./styles.css";
 
 const rootElement = document.getElementById("root");
@@ -11,7 +12,7 @@ const view = new URLSearchParams(window.location.search).get("view");
 const content = view === "overlay"
   ? <OverlayView />
   : view === "capture"
-    ? <main className="capture-view" aria-hidden="true" />
+    ? <CaptureView />
     : <App />;
 
 createRoot(rootElement).render(<StrictMode>{content}</StrictMode>);
