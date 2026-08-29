@@ -25,6 +25,17 @@ export interface StartSessionInput {
   sceneId: string;
   goal: string;
   plannedMinutes: number;
+  // === 阶段 3 新增（均为可选，向后兼容） ===
+  /** 用户选择的屏幕捕获源 ID */
+  captureSourceId?: string;
+  /** 是否启用多模态 AI 判定，默认 false */
+  visionEnabled?: boolean;
+  /** 是否允许向 AI 发送窗口标题，默认 false */
+  sendWindowTitle?: boolean;
+  /** 本场启用的允许规则 ID 列表 */
+  allowRuleIds?: string[];
+  /** 本场启用的禁止规则 ID 列表 */
+  blockRuleIds?: string[];
 }
 
 export interface SessionOutcome {
