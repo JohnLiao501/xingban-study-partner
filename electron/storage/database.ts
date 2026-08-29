@@ -301,6 +301,26 @@ export class XingbanDatabase {
     if (result.changes === 0) throw new Error("RULE_NOT_FOUND");
   }
 
+  getAppSetting(key: string): string | null {
+    const row = this.database.prepare("SELECT value_json FROM app_settings WHERE key = ?").get(key) as { value_json: string } | undefined;
+    return row?.value_json ?? null;
+  }
+
+  setAppSetting(key: string, valueJson: string): void {
+    const now = new Date().toISOString();
+    this.database.prepare(`
+      INSERT INTO app_settings (key, value_json, updated_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(key) DO UPDATE SET
+        value_json = excluded.value_json,
+        updated_at = excluded.updated_at
+    `).run(key, valueJson, now);
+  }
+
+  deleteAppSetting(key: string): void {
+    this.database.prepare("DELETE FROM app_settings WHERE key = ?").run(key);
+  }
+
   private migrate(): void {
     this.database.exec(`
       CREATE TABLE IF NOT EXISTS schema_migrations (

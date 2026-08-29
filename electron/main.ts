@@ -37,7 +37,10 @@ import {
 import { SessionService } from "./session/service.js";
 import { XingbanDatabase } from "./storage/database.js";
 import { PermissionManager } from "./security/permission-manager.js";
+import { SecretStore } from "./security/secret-store.js";
 import { ElectronCaptureService } from "./capture/capture-service.js";
+import { OpenAiVisionAdapter } from "./vision/openai-vision-adapter.js";
+import type { SaveVisionSettingsInput, VisionSettingsView } from "../shared/inspection.js";
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(currentDirectory, "..", "..");
@@ -47,6 +50,17 @@ const schemaPath = path.join(projectRoot, "schemas", "partner-pack.v1.schema.jso
 
 const permissionManager = new PermissionManager();
 let captureService: ElectronCaptureService | null = null;
+let secretStore: SecretStore | null = null;
+let visionAdapter: OpenAiVisionAdapter | null = null;
+
+const SETTINGS_KEY_VISION = "vision_settings";
+const DEFAULT_VISION_CONFIG = {
+  baseUrl: "https://api.openai.com/v1",
+  model: "gpt-4o",
+  sendWindowTitle: false,
+  visionEnabled: false,
+  timeoutMs: 10000,
+};
 
 let mainWindow: BrowserWindow | undefined;
 let overlayWindow: BrowserWindow | undefined;
@@ -354,6 +368,56 @@ function registerIpc(): void {
   ipcMain.handle("capture:stream-ended", () => {
     captureService?.handleStreamEnded();
   });
+  ipcMain.handle("settings:get-vision", (): VisionSettingsView => {
+    let savedConfig = DEFAULT_VISION_CONFIG;
+    const raw = database?.getAppSetting(SETTINGS_KEY_VISION);
+    if (raw) {
+      try {
+        savedConfig = { ...DEFAULT_VISION_CONFIG, ...JSON.parse(raw) };
+      } catch {}
+    }
+    return {
+      baseUrl: savedConfig.baseUrl,
+      model: savedConfig.model,
+      apiKeyConfigured: secretStore?.hasApiKey() ?? false,
+      sendWindowTitle: savedConfig.sendWindowTitle,
+      visionEnabled: savedConfig.visionEnabled,
+      timeoutMs: savedConfig.timeoutMs,
+    };
+  });
+  ipcMain.handle("settings:save-vision", (_event, input: SaveVisionSettingsInput): VisionSettingsView => {
+    if (!database || !secretStore) throw new Error("DB_NOT_INITIALIZED");
+
+    if (input.clearApiKey) {
+      secretStore.clearApiKey();
+    } else if (input.apiKey && input.apiKey.trim()) {
+      secretStore.setApiKey(input.apiKey);
+    }
+
+    const configToSave = {
+      baseUrl: input.baseUrl.trim(),
+      model: input.model.trim(),
+      sendWindowTitle: Boolean(input.sendWindowTitle),
+      visionEnabled: Boolean(input.visionEnabled),
+      timeoutMs: Math.max(2000, Math.min(60000, Number(input.timeoutMs) || 10000)),
+    };
+
+    database.setAppSetting(SETTINGS_KEY_VISION, JSON.stringify(configToSave));
+    visionAdapter?.updateConfig({
+      baseUrl: configToSave.baseUrl,
+      model: configToSave.model,
+      timeoutMs: configToSave.timeoutMs,
+    });
+
+    return {
+      ...configToSave,
+      apiKeyConfigured: secretStore.hasApiKey(),
+    };
+  });
+  ipcMain.handle("settings:test-connection", async () => {
+    if (!visionAdapter) return { ok: false, message: "适配器未初始化" };
+    return await visionAdapter.testConnection();
+  });
   ipcMain.handle("window:minimize", (event) => senderWindow(event)?.minimize());
   ipcMain.handle("window:toggle-maximize", (event) => {
     const window = senderWindow(event);
@@ -378,6 +442,23 @@ app.whenReady().then(async () => {
   });
   bundledDemo = await loadBundledDemo(projectRoot);
   database = new XingbanDatabase(path.join(app.getPath("userData"), "xingban.sqlite3"));
+  secretStore = new SecretStore(database);
+
+  let initialVision = DEFAULT_VISION_CONFIG;
+  const rawVision = database.getAppSetting(SETTINGS_KEY_VISION);
+  if (rawVision) {
+    try {
+      initialVision = { ...DEFAULT_VISION_CONFIG, ...JSON.parse(rawVision) };
+    } catch {}
+  }
+
+  visionAdapter = new OpenAiVisionAdapter({
+    baseUrl: initialVision.baseUrl,
+    model: initialVision.model,
+    timeoutMs: initialVision.timeoutMs,
+    getApiKey: () => secretStore?.getApiKey() ?? null,
+  });
+
   sessionService = new SessionService((snapshot) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("session:changed", snapshot);

@@ -74,6 +74,9 @@ const api: StudyPartnerApi = {
   },
   sendCaptureFrame: (frameData) => ipcRenderer.invoke("capture:send-frame", frameData) as Promise<void>,
   notifyCaptureStreamEnded: () => ipcRenderer.invoke("capture:stream-ended") as Promise<void>,
+  getVisionSettings: () => ipcRenderer.invoke("settings:get-vision") as Promise<any>,
+  saveVisionSettings: (input) => ipcRenderer.invoke("settings:save-vision", input) as Promise<any>,
+  testVisionConnection: () => ipcRenderer.invoke("settings:test-connection") as Promise<any>,
   onSessionChanged: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, snapshot: SessionSnapshot) => {
       listener(snapshot);

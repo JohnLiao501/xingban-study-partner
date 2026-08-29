@@ -65,6 +65,24 @@ export interface VisionSettingsView {
   timeoutMs: number;
 }
 
+/** 保存视觉设置输入参数 */
+export interface SaveVisionSettingsInput {
+  baseUrl: string;
+  model: string;
+  apiKey?: string;
+  clearApiKey?: boolean;
+  sendWindowTitle: boolean;
+  visionEnabled: boolean;
+  timeoutMs: number;
+}
+
+/** 视觉配置 IPC 契约接口 */
+export interface VisionSettingsApi {
+  getVisionSettings: () => Promise<VisionSettingsView>;
+  saveVisionSettings: (input: SaveVisionSettingsInput) => Promise<VisionSettingsView>;
+  testVisionConnection: () => Promise<{ ok: boolean; message?: string }>;
+}
+
 export const PROBE_STATUSES = ["stopped", "running", "unavailable", "restarting"] as const;
 export type ForegroundProbeStatus = (typeof PROBE_STATUSES)[number];
 

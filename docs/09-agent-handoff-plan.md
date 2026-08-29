@@ -459,8 +459,8 @@ sidecar 输出示例：
 - [x] S3-008 实现停止共享、源结束、窗口销毁和并发/超时处理。
 - [x] S3-009 实现 InspectionEngine 的 local-first 编排。
 - [x] S3-010 实现 AI distracted 的 15 秒新帧二次确认与取消逻辑。
-- [ ] S3-011 实现 safeStorage SecretStore 与脱敏设置 IPC。
-- [ ] S3-012 实现兼容 VisionAdapter、严格 JSON 校验和失败降级。
+- [x] S3-011 实现 safeStorage SecretStore 与脱敏设置 IPC。
+- [x] S3-012 实现兼容 VisionAdapter、严格 JSON 校验和失败降级。
 - [ ] S3-013 扩展会话设置、状态、主界面停止和托盘停止控制。
 - [ ] S3-014 接入结构化 observation 持久化；如需变更则新增 migration v2。
 - [ ] S3-015 建立日志 allowlist/redaction 与敏感字段测试。
