@@ -1,0 +1,124 @@
+import { describe, expect, it } from "vitest";
+import { advanceSession, createSession } from "../../shared/session-engine";
+import type { SessionSnapshot, StartSessionInput } from "../../shared/session";
+import { XingbanDatabase } from "./database";
+
+function focusingSession(
+  sessionId: string,
+  partnerId = "demo.guardian-zero",
+): SessionSnapshot {
+  const input: StartSessionInput = {
+    partnerId,
+    packVersion: "1.0.0",
+    sceneId: "quiet-observatory",
+    goal: `测试 ${sessionId}`,
+    plannedMinutes: 25,
+  };
+  return advanceSession(
+    createSession(input, { sessionId, seed: 42 }),
+    { type: "prepared" },
+  );
+}
+
+describe("XingbanDatabase", () => {
+  it("saves and safely pauses a recoverable checkpoint", () => {
+    const database = new XingbanDatabase(":memory:");
+    const checkpoint = advanceSession(focusingSession("recover-me"), {
+      type: "tick",
+      seconds: 125,
+    });
+    database.saveSession(checkpoint);
+
+    expect(database.loadRecoverableSession()).toMatchObject({
+      sessionId: "recover-me",
+      phase: "focusing",
+      paused: true,
+      focusedSeconds: 125,
+      recoveredFromCheckpoint: true,
+    });
+    database.close();
+  });
+
+  it("finalizes trust exactly once even if settlement is retried", () => {
+    const database = new XingbanDatabase(":memory:");
+    const focusing = {
+      ...focusingSession("settled-once"),
+      focusedSeconds: 20 * 60,
+      deviationCount: 1,
+    };
+    const settled = advanceSession(focusing, { type: "finish", mode: "completed" });
+    const resolveLevel = (totalTrust: number) => totalTrust >= 20 ? "trusted" : "initial";
+
+    const first = database.finalizeSession(settled, resolveLevel);
+    const replay = database.finalizeSession(settled, resolveLevel);
+    expect(first).toMatchObject({ totalTrust: 27, currentLevelId: "trusted" });
+    expect(replay.totalTrust).toBe(27);
+    database.close();
+  });
+
+  it("keeps progress isolated by partnerId", () => {
+    const database = new XingbanDatabase(":memory:");
+    const first = advanceSession({
+      ...focusingSession("partner-a-session", "partner-a"),
+      focusedSeconds: 10 * 60,
+    }, { type: "finish", mode: "completed" });
+    const second = advanceSession({
+      ...focusingSession("partner-b-session", "partner-b"),
+      focusedSeconds: 5 * 60,
+    }, { type: "finish", mode: "completed" });
+
+    database.finalizeSession(first, () => "level-a");
+    database.finalizeSession(second, () => "level-b");
+    expect(database.getPartnerProgress("partner-a").totalTrust).toBe(10);
+    expect(database.getPartnerProgress("partner-b").totalTrust).toBe(5);
+    database.close();
+  });
+
+  it("lists terminal sessions newest first with their structured result", () => {
+    const database = new XingbanDatabase(":memory:");
+    const completed = advanceSession({
+      ...focusingSession("history-completed"),
+      focusedSeconds: 25 * 60,
+    }, { type: "finish", mode: "completed" });
+    const interrupted = advanceSession({
+      ...focusingSession("history-interrupted"),
+      focusedSeconds: 3 * 60,
+    }, { type: "finish", mode: "interrupted" });
+
+    database.finalizeSession(completed, () => "trusted");
+    database.finalizeSession(interrupted, () => "trusted");
+    const history = database.listSessionHistory();
+    expect(history).toHaveLength(2);
+    expect(history.map((item) => item.sessionId)).toEqual([
+      "history-interrupted",
+      "history-completed",
+    ]);
+    expect(history[0]).toMatchObject({ grade: null, trustGained: 0, phase: "interrupted" });
+    expect(history[1]).toMatchObject({ grade: "S", trustGained: 35, phase: "completed" });
+    expect(database.loadRecoverableSession()).toBeNull();
+    database.close();
+  });
+
+  it("creates, toggles, lists, and deletes local app rules", () => {
+    const database = new XingbanDatabase(":memory:");
+    const saved = database.saveAppRule({
+      matchType: "process",
+      pattern: "  Obsidian.exe  ",
+      decision: "allow",
+      enabled: true,
+    });
+    expect(saved).toMatchObject({ pattern: "Obsidian.exe", decision: "allow", enabled: true });
+
+    database.saveAppRule({
+      id: saved.id,
+      matchType: saved.matchType,
+      pattern: saved.pattern,
+      decision: saved.decision,
+      enabled: false,
+    });
+    expect(database.listAppRules()).toMatchObject([{ id: saved.id, enabled: false }]);
+    database.deleteAppRule(saved.id);
+    expect(database.listAppRules()).toEqual([]);
+    database.close();
+  });
+});

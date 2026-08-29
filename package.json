@@ -1,0 +1,38 @@
+{
+  "name": "xingban-study-partner",
+  "version": "0.1.0",
+  "private": true,
+  "description": "IP 中立、伙伴包驱动的本地 AI 伴学督学应用",
+  "type": "module",
+  "main": "dist-electron/electron/main.js",
+  "scripts": {
+    "dev": "pnpm run build && electron .",
+    "dev:renderer": "vite --host 127.0.0.1",
+    "build": "pnpm run typecheck && pnpm run build:main && pnpm run build:renderer",
+    "build:main": "tsc -p tsconfig.electron.json",
+    "build:renderer": "vite build",
+    "typecheck": "tsc -p tsconfig.renderer.json --noEmit && tsc -p tsconfig.electron.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "start": "electron ."
+  },
+  "dependencies": {
+    "ajv": "8.20.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.5",
+    "@vitejs/plugin-react": "6.1.0",
+    "electron": "44.0.0",
+    "typescript": "7.0.2",
+    "vite": "8.2.2",
+    "vitest": "4.1.11"
+  },
+  "engines": {
+    "node": ">=24.18.1"
+  },
+  "packageManager": "pnpm@11.19.0"
+}

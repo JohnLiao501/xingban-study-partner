@@ -1,0 +1,431 @@
+{
+  "$schema": "../../schemas/partner-pack.v1.schema.json",
+  "schemaVersion": 1,
+  "partnerId": "demo-guardian",
+  "packVersion": "1.0.0",
+  "minimumAppVersion": "0.1.0",
+  "displayName": "守望者零号",
+  "description": "用于开发和 Schema 测试的原创抽象督学伙伴，不对应任何现有作品或人物。",
+  "sourceType": "original",
+  "distribution": "redistributable",
+  "rightsNotice": "本示例的名称、文案与抽象守望者媒体均为项目测试用途的原创生成内容，不对应任何现有作品或人物。",
+  "author": {
+    "name": "AI Study Partner Project"
+  },
+  "capabilities": {
+    "preRenderedVideo": true,
+    "originalTts": false,
+    "multipleScenes": false,
+    "cameraRequired": false
+  },
+  "persona": {
+    "summary": "冷静、可靠的原创抽象守望者，以清晰提醒和适度鼓励帮助用户回到目标。",
+    "defaultTone": "dynamic",
+    "styleRules": [
+      "优先陈述当前目标和下一步行动。",
+      "专注时简短确认，分心时明确但不羞辱。"
+    ],
+    "boundaries": [
+      "不威胁、不贬低、不评价用户人格。",
+      "无法确认时只询问，不作处罚性断言。"
+    ]
+  },
+  "voice": {
+    "mode": "subtitle-only",
+    "language": "zh-CN",
+    "clonedRealPerson": false
+  },
+  "relationshipLevels": [
+    {
+      "id": "first-meeting",
+      "displayName": "初识",
+      "minimumTrust": 0
+    },
+    {
+      "id": "trusted-companion",
+      "displayName": "信赖",
+      "minimumTrust": 100,
+      "unlockNote": "允许选择更亲近的字幕变体。"
+    }
+  ],
+  "sceneVariants": [
+    {
+      "id": "quiet-observatory",
+      "displayName": "静谧观测室",
+      "description": "无品牌、无文字标识的原创夜间观测室。",
+      "coverAssetId": "cover-observatory",
+      "reactions": {
+        "idle_loop": [
+          {
+            "variantId": "idle-loop-default",
+            "videoAssetId": "video-idle-loop",
+            "lineIds": [
+              "line-idle-loop"
+            ],
+            "weight": 100,
+            "minimumTrust": 0
+          }
+        ],
+        "session_start": [
+          {
+            "variantId": "session-start-default",
+            "videoAssetId": "video-session-start",
+            "lineIds": [
+              "line-session-start"
+            ],
+            "weight": 100,
+            "minimumTrust": 0
+          }
+        ],
+        "patrol_enter": [
+          {
+            "variantId": "patrol-enter-default",
+            "videoAssetId": "video-patrol-enter",
+            "lineIds": [
+              "line-patrol-enter"
+            ],
+            "weight": 100,
+            "minimumTrust": 0
+          }
+        ],
+        "focus_confirmed": [
+          {
+            "variantId": "focus-confirmed-default",
+            "videoAssetId": "video-focus-confirmed",
+            "lineIds": [
+              "line-focus-confirmed"
+            ],
+            "weight": 100,
+            "minimumTrust": 0
+          }
+        ],
+        "uncertain_nudge": [
+          {
+            "variantId": "uncertain-nudge-default",
+            "videoAssetId": "video-uncertain-nudge",
+            "lineIds": [
+              "line-uncertain-nudge"
+            ],
+            "weight": 100,
+            "minimumTrust": 0
+          }
+        ],
+        "distracted_warning": [
+          {
+            "variantId": "distracted-warning-default",
+            "videoAssetId": "video-distracted-warning",
+            "lineIds": [
+              "line-distracted-warning"
+            ],
+            "weight": 100,
+            "minimumTrust": 0
+          }
+        ],
+        "recovery": [
+          {
+            "variantId": "recovery-default",
+            "videoAssetId": "video-recovery",
+            "lineIds": [
+              "line-recovery"
+            ],
+            "weight": 100,
+            "minimumTrust": 0
+          }
+        ],
+        "break_invite": [
+          {
+            "variantId": "break-invite-default",
+            "videoAssetId": "video-break-invite",
+            "lineIds": [
+              "line-break-invite"
+            ],
+            "weight": 100,
+            "minimumTrust": 0
+          }
+        ],
+        "session_complete": [
+          {
+            "variantId": "session-complete-default",
+            "videoAssetId": "video-session-complete",
+            "lineIds": [
+              "line-session-complete"
+            ],
+            "weight": 100,
+            "minimumTrust": 0
+          }
+        ],
+        "session_partial": [
+          {
+            "variantId": "session-partial-default",
+            "videoAssetId": "video-session-partial",
+            "lineIds": [
+              "line-session-partial"
+            ],
+            "weight": 100,
+            "minimumTrust": 0
+          }
+        ]
+      }
+    }
+  ],
+  "mediaAssets": [
+    {
+      "id": "cover-observatory",
+      "kind": "image",
+      "filePath": "assets/cover/quiet-observatory.webp",
+      "mimeType": "image/webp",
+      "codec": "webp",
+      "width": 1920,
+      "height": 1080
+    },
+    {
+      "id": "video-idle-loop",
+      "kind": "video",
+      "filePath": "assets/video/idle-loop.mp4",
+      "mimeType": "video/mp4",
+      "codec": "h264",
+      "durationMs": 10000,
+      "width": 1920,
+      "height": 1080,
+      "fps": 24,
+      "loop": true
+    },
+    {
+      "id": "video-session-start",
+      "kind": "video",
+      "filePath": "assets/video/session-start.mp4",
+      "mimeType": "video/mp4",
+      "codec": "h264",
+      "durationMs": 5000,
+      "width": 1920,
+      "height": 1080,
+      "fps": 24,
+      "loop": false
+    },
+    {
+      "id": "video-patrol-enter",
+      "kind": "video",
+      "filePath": "assets/video/patrol-enter.mp4",
+      "mimeType": "video/mp4",
+      "codec": "h264",
+      "durationMs": 4000,
+      "width": 1920,
+      "height": 1080,
+      "fps": 24,
+      "loop": false
+    },
+    {
+      "id": "video-focus-confirmed",
+      "kind": "video",
+      "filePath": "assets/video/focus-confirmed.mp4",
+      "mimeType": "video/mp4",
+      "codec": "h264",
+      "durationMs": 4000,
+      "width": 1920,
+      "height": 1080,
+      "fps": 24,
+      "loop": false
+    },
+    {
+      "id": "video-uncertain-nudge",
+      "kind": "video",
+      "filePath": "assets/video/uncertain-nudge.mp4",
+      "mimeType": "video/mp4",
+      "codec": "h264",
+      "durationMs": 4000,
+      "width": 1920,
+      "height": 1080,
+      "fps": 24,
+      "loop": false
+    },
+    {
+      "id": "video-distracted-warning",
+      "kind": "video",
+      "filePath": "assets/video/distracted-warning.mp4",
+      "mimeType": "video/mp4",
+      "codec": "h264",
+      "durationMs": 5000,
+      "width": 1920,
+      "height": 1080,
+      "fps": 24,
+      "loop": false
+    },
+    {
+      "id": "video-recovery",
+      "kind": "video",
+      "filePath": "assets/video/recovery.mp4",
+      "mimeType": "video/mp4",
+      "codec": "h264",
+      "durationMs": 4000,
+      "width": 1920,
+      "height": 1080,
+      "fps": 24,
+      "loop": false
+    },
+    {
+      "id": "video-break-invite",
+      "kind": "video",
+      "filePath": "assets/video/break-invite.mp4",
+      "mimeType": "video/mp4",
+      "codec": "h264",
+      "durationMs": 5000,
+      "width": 1920,
+      "height": 1080,
+      "fps": 24,
+      "loop": false
+    },
+    {
+      "id": "video-session-complete",
+      "kind": "video",
+      "filePath": "assets/video/session-complete.mp4",
+      "mimeType": "video/mp4",
+      "codec": "h264",
+      "durationMs": 7000,
+      "width": 1920,
+      "height": 1080,
+      "fps": 24,
+      "loop": false
+    },
+    {
+      "id": "video-session-partial",
+      "kind": "video",
+      "filePath": "assets/video/session-partial.mp4",
+      "mimeType": "video/mp4",
+      "codec": "h264",
+      "durationMs": 6000,
+      "width": 1920,
+      "height": 1080,
+      "fps": 24,
+      "loop": false
+    }
+  ],
+  "lines": [
+    {
+      "id": "line-idle-loop",
+      "reactionKey": "idle_loop",
+      "text": "准备好时，我们就开始。",
+      "weight": 100,
+      "cooldownSeconds": 120
+    },
+    {
+      "id": "line-session-start",
+      "reactionKey": "session_start",
+      "text": "目标已经确认，接下来专心完成它。",
+      "weight": 100,
+      "cooldownSeconds": 30
+    },
+    {
+      "id": "line-patrol-enter",
+      "reactionKey": "patrol_enter",
+      "text": "例行确认一下你的进度。",
+      "weight": 100,
+      "cooldownSeconds": 30
+    },
+    {
+      "id": "line-focus-confirmed",
+      "reactionKey": "focus_confirmed",
+      "text": "很好，保持现在的节奏。",
+      "weight": 100,
+      "cooldownSeconds": 60
+    },
+    {
+      "id": "line-uncertain-nudge",
+      "reactionKey": "uncertain_nudge",
+      "text": "我暂时无法确认，记得检查是否仍在目标上。",
+      "weight": 100,
+      "cooldownSeconds": 60
+    },
+    {
+      "id": "line-distracted-warning",
+      "reactionKey": "distracted_warning",
+      "text": "航线偏了，先回到本次目标。",
+      "weight": 100,
+      "cooldownSeconds": 90
+    },
+    {
+      "id": "line-recovery",
+      "reactionKey": "recovery",
+      "text": "已经重新稳定下来，继续前进。",
+      "weight": 100,
+      "cooldownSeconds": 120
+    },
+    {
+      "id": "line-break-invite",
+      "reactionKey": "break_invite",
+      "text": "这一段结束了，起来活动一下吧。",
+      "weight": 100,
+      "cooldownSeconds": 60
+    },
+    {
+      "id": "line-session-complete",
+      "reactionKey": "session_complete",
+      "text": "目标完成，这段努力值得记录。",
+      "weight": 100,
+      "cooldownSeconds": 60
+    },
+    {
+      "id": "line-session-partial",
+      "reactionKey": "session_partial",
+      "text": "今天先到这里，下一次从未完成的部分继续。",
+      "weight": 100,
+      "cooldownSeconds": 60
+    }
+  ],
+  "files": [
+    {
+      "path": "assets/cover/quiet-observatory.webp",
+      "sha256": "18b3a573ee03cc519500dda3e377a78e4698ab720356236154793b4084101e1f",
+      "sizeBytes": 216586
+    },
+    {
+      "path": "assets/video/idle-loop.mp4",
+      "sha256": "f69f31f3a0307f25205f19279d3f5d0286ae46841f7603d8222f1ab9e937ed1b",
+      "sizeBytes": 279492
+    },
+    {
+      "path": "assets/video/session-start.mp4",
+      "sha256": "093d1da909a681588038bee381bfc587e8aac217ab016cdb490d8ef822e13489",
+      "sizeBytes": 263922
+    },
+    {
+      "path": "assets/video/patrol-enter.mp4",
+      "sha256": "43b25a9111f16e1cd10b4639f1618efc66755ced6d91eae8581a4f12868bcb63",
+      "sizeBytes": 260808
+    },
+    {
+      "path": "assets/video/focus-confirmed.mp4",
+      "sha256": "43b25a9111f16e1cd10b4639f1618efc66755ced6d91eae8581a4f12868bcb63",
+      "sizeBytes": 260808
+    },
+    {
+      "path": "assets/video/uncertain-nudge.mp4",
+      "sha256": "43b25a9111f16e1cd10b4639f1618efc66755ced6d91eae8581a4f12868bcb63",
+      "sizeBytes": 260808
+    },
+    {
+      "path": "assets/video/distracted-warning.mp4",
+      "sha256": "093d1da909a681588038bee381bfc587e8aac217ab016cdb490d8ef822e13489",
+      "sizeBytes": 263922
+    },
+    {
+      "path": "assets/video/recovery.mp4",
+      "sha256": "43b25a9111f16e1cd10b4639f1618efc66755ced6d91eae8581a4f12868bcb63",
+      "sizeBytes": 260808
+    },
+    {
+      "path": "assets/video/break-invite.mp4",
+      "sha256": "093d1da909a681588038bee381bfc587e8aac217ab016cdb490d8ef822e13489",
+      "sizeBytes": 263922
+    },
+    {
+      "path": "assets/video/session-complete.mp4",
+      "sha256": "cd4cab39cfb605644b418141aacd5e73b2934e7f9ee3165f04cbd9b359bbbb85",
+      "sizeBytes": 270150
+    },
+    {
+      "path": "assets/video/session-partial.mp4",
+      "sha256": "c1536ca2a8c1cd1cb6751966d519fd5eaab089f7b99f8eb63e168779d03f28d1",
+      "sizeBytes": 267036
+    }
+  ]
+}

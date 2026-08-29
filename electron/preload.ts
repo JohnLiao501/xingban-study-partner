@@ -1,0 +1,57 @@
+import { contextBridge, ipcRenderer } from "electron";
+import type {
+  BootstrapData,
+  ImportResult,
+  OverlayPreviewPayload,
+  StudyPartnerApi,
+} from "../shared/partner-pack.js";
+import type {
+  ObservationLabel,
+  SessionFinishMode,
+  SessionHistoryEntry,
+  SessionSnapshot,
+  PartnerProgressSnapshot,
+  StartSessionInput,
+} from "../shared/session.js";
+import type { AppRule, SaveAppRuleInput } from "../shared/rules.js";
+
+const api: StudyPartnerApi = {
+  getBootstrapData: () => ipcRenderer.invoke("app:get-bootstrap") as Promise<BootstrapData>,
+  importPartnerDirectory: () => ipcRenderer.invoke("partner:import-directory") as Promise<ImportResult>,
+  showOverlayPreview: (payload) => ipcRenderer.invoke("overlay:show-preview", payload) as Promise<void>,
+  hideOverlay: () => ipcRenderer.invoke("overlay:hide") as Promise<void>,
+  onOverlayPreview: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: OverlayPreviewPayload) => {
+      listener(payload);
+    };
+    ipcRenderer.on("overlay:preview", handler);
+    return () => ipcRenderer.removeListener("overlay:preview", handler);
+  },
+  getActiveSession: () => ipcRenderer.invoke("session:get-active") as Promise<SessionSnapshot | null>,
+  startSession: (input: StartSessionInput) => ipcRenderer.invoke("session:start", input) as Promise<SessionSnapshot>,
+  pauseSession: (sessionId: string) => ipcRenderer.invoke("session:pause", sessionId) as Promise<SessionSnapshot>,
+  resumeSession: (sessionId: string) => ipcRenderer.invoke("session:resume", sessionId) as Promise<SessionSnapshot>,
+  previewSessionPatrol: (sessionId: string) => ipcRenderer.invoke("session:preview-patrol", sessionId) as Promise<SessionSnapshot>,
+  triggerSessionPatrol: (sessionId: string) => ipcRenderer.invoke("session:trigger-patrol", sessionId) as Promise<SessionSnapshot>,
+  recordSessionObservation: (sessionId: string, label: ObservationLabel) => ipcRenderer.invoke("session:record-observation", sessionId, label) as Promise<SessionSnapshot>,
+  completeSessionFeedback: (sessionId: string) => ipcRenderer.invoke("session:complete-feedback", sessionId) as Promise<SessionSnapshot>,
+  startSessionBreak: (sessionId: string) => ipcRenderer.invoke("session:start-break", sessionId) as Promise<SessionSnapshot>,
+  finishSession: (sessionId: string, mode: SessionFinishMode) => ipcRenderer.invoke("session:finish", sessionId, mode) as Promise<SessionSnapshot>,
+  listSessionHistory: (limit = 50) => ipcRenderer.invoke("history:list", limit) as Promise<SessionHistoryEntry[]>,
+  getPartnerProgress: (partnerId: string) => ipcRenderer.invoke("partner:get-progress", partnerId) as Promise<PartnerProgressSnapshot>,
+  listAppRules: () => ipcRenderer.invoke("rules:list") as Promise<AppRule[]>,
+  saveAppRule: (input: SaveAppRuleInput) => ipcRenderer.invoke("rules:save", input) as Promise<AppRule>,
+  deleteAppRule: (id: string) => ipcRenderer.invoke("rules:delete", id) as Promise<void>,
+  onSessionChanged: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, snapshot: SessionSnapshot) => {
+      listener(snapshot);
+    };
+    ipcRenderer.on("session:changed", handler);
+    return () => ipcRenderer.removeListener("session:changed", handler);
+  },
+  minimizeWindow: () => ipcRenderer.invoke("window:minimize") as Promise<void>,
+  toggleMaximizeWindow: () => ipcRenderer.invoke("window:toggle-maximize") as Promise<boolean>,
+  closeWindow: () => ipcRenderer.invoke("window:close") as Promise<void>,
+};
+
+contextBridge.exposeInMainWorld("studyPartner", api);

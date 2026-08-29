@@ -1,0 +1,668 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.ai-study-partner/schemas/partner-pack.v1.schema.json",
+  "title": "PartnerPackManifestV1",
+  "description": "AI 伴学督学伙伴包 v1 清单。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "partnerId",
+    "packVersion",
+    "minimumAppVersion",
+    "displayName",
+    "description",
+    "sourceType",
+    "distribution",
+    "rightsNotice",
+    "author",
+    "capabilities",
+    "persona",
+    "voice",
+    "relationshipLevels",
+    "sceneVariants",
+    "mediaAssets",
+    "lines",
+    "files"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "format": "uri-reference"
+    },
+    "schemaVersion": {
+      "const": 1
+    },
+    "partnerId": {
+      "$ref": "#/$defs/id"
+    },
+    "packVersion": {
+      "$ref": "#/$defs/semver"
+    },
+    "minimumAppVersion": {
+      "$ref": "#/$defs/semver"
+    },
+    "displayName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 60
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 300
+    },
+    "sourceType": {
+      "enum": [
+        "private-fan",
+        "original"
+      ]
+    },
+    "distribution": {
+      "enum": [
+        "private-only",
+        "redistributable"
+      ]
+    },
+    "rightsNotice": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
+    },
+    "author": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "homepage": {
+          "type": "string",
+          "format": "uri"
+        }
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "preRenderedVideo",
+        "originalTts",
+        "multipleScenes",
+        "cameraRequired"
+      ],
+      "properties": {
+        "preRenderedVideo": {
+          "const": true
+        },
+        "originalTts": {
+          "type": "boolean"
+        },
+        "multipleScenes": {
+          "type": "boolean"
+        },
+        "cameraRequired": {
+          "const": false
+        }
+      }
+    },
+    "persona": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "summary",
+        "defaultTone",
+        "styleRules",
+        "boundaries"
+      ],
+      "properties": {
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "defaultTone": {
+          "enum": [
+            "dynamic",
+            "strict",
+            "gentle"
+          ]
+        },
+        "styleRules": {
+          "$ref": "#/$defs/nonEmptyStringArray"
+        },
+        "boundaries": {
+          "$ref": "#/$defs/nonEmptyStringArray"
+        }
+      }
+    },
+    "voice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "language",
+        "clonedRealPerson"
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "original-tts",
+            "subtitle-only"
+          ]
+        },
+        "language": {
+          "type": "string",
+          "pattern": "^[a-z]{2,3}(?:-[A-Z]{2})?$"
+        },
+        "voiceName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "clonedRealPerson": {
+          "const": false
+        }
+      }
+    },
+    "relationshipLevels": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/relationshipLevel"
+      }
+    },
+    "sceneVariants": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/sceneVariant"
+      }
+    },
+    "mediaAssets": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "$ref": "#/$defs/mediaAsset"
+      }
+    },
+    "lines": {
+      "type": "array",
+      "minItems": 10,
+      "items": {
+        "$ref": "#/$defs/line"
+      }
+    },
+    "files": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "$ref": "#/$defs/fileEntry"
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "sourceType": {
+            "const": "private-fan"
+          }
+        },
+        "required": [
+          "sourceType"
+        ]
+      },
+      "then": {
+        "properties": {
+          "distribution": {
+            "const": "private-only"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "voice": {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "const": "original-tts"
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "capabilities": {
+            "type": "object",
+            "properties": {
+              "originalTts": {
+                "const": true
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)[.](0|[1-9][0-9]*)[.](0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:[+][0-9A-Za-z.-]+)?$"
+    },
+    "relativePath": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_][A-Za-z0-9._/-]*$",
+      "not": {
+        "pattern": "(^|/)[.][.](/|$)"
+      },
+      "maxLength": 240
+    },
+    "reactionKey": {
+      "enum": [
+        "idle_loop",
+        "session_start",
+        "patrol_enter",
+        "focus_confirmed",
+        "uncertain_nudge",
+        "distracted_warning",
+        "recovery",
+        "break_invite",
+        "session_complete",
+        "session_partial"
+      ]
+    },
+    "nonEmptyStringArray": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 240
+      }
+    },
+    "relationshipLevel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "displayName",
+        "minimumTrust"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "minimumTrust": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000000
+        },
+        "unlockNote": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        }
+      }
+    },
+    "reactionVariant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "variantId",
+        "videoAssetId",
+        "lineIds",
+        "weight",
+        "minimumTrust"
+      ],
+      "properties": {
+        "variantId": {
+          "$ref": "#/$defs/id"
+        },
+        "videoAssetId": {
+          "$ref": "#/$defs/id"
+        },
+        "lineIds": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "weight": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "minimumTrust": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000000
+        }
+      }
+    },
+    "reactionVariantList": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/reactionVariant"
+      }
+    },
+    "reactions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "idle_loop",
+        "session_start",
+        "patrol_enter",
+        "focus_confirmed",
+        "uncertain_nudge",
+        "distracted_warning",
+        "recovery",
+        "break_invite",
+        "session_complete",
+        "session_partial"
+      ],
+      "properties": {
+        "idle_loop": {
+          "$ref": "#/$defs/reactionVariantList"
+        },
+        "session_start": {
+          "$ref": "#/$defs/reactionVariantList"
+        },
+        "patrol_enter": {
+          "$ref": "#/$defs/reactionVariantList"
+        },
+        "focus_confirmed": {
+          "$ref": "#/$defs/reactionVariantList"
+        },
+        "uncertain_nudge": {
+          "$ref": "#/$defs/reactionVariantList"
+        },
+        "distracted_warning": {
+          "$ref": "#/$defs/reactionVariantList"
+        },
+        "recovery": {
+          "$ref": "#/$defs/reactionVariantList"
+        },
+        "break_invite": {
+          "$ref": "#/$defs/reactionVariantList"
+        },
+        "session_complete": {
+          "$ref": "#/$defs/reactionVariantList"
+        },
+        "session_partial": {
+          "$ref": "#/$defs/reactionVariantList"
+        }
+      }
+    },
+    "sceneVariant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "displayName",
+        "description",
+        "coverAssetId",
+        "reactions"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        },
+        "coverAssetId": {
+          "$ref": "#/$defs/id"
+        },
+        "reactions": {
+          "$ref": "#/$defs/reactions"
+        }
+      }
+    },
+    "mediaAsset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "filePath",
+        "mimeType",
+        "codec"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "kind": {
+          "enum": [
+            "video",
+            "audio",
+            "image"
+          ]
+        },
+        "filePath": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "mimeType": {
+          "enum": [
+            "video/mp4",
+            "audio/ogg",
+            "image/webp"
+          ]
+        },
+        "codec": {
+          "enum": [
+            "h264",
+            "opus",
+            "webp"
+          ]
+        },
+        "durationMs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60000
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 7680
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4320
+        },
+        "fps": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 120
+        },
+        "loop": {
+          "type": "boolean"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "video"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "durationMs",
+              "width",
+              "height",
+              "fps",
+              "loop"
+            ],
+            "properties": {
+              "mimeType": {
+                "const": "video/mp4"
+              },
+              "codec": {
+                "const": "h264"
+              },
+              "width": {
+                "const": 1920
+              },
+              "height": {
+                "const": 1080
+              },
+              "fps": {
+                "const": 24
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "audio"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "durationMs"
+            ],
+            "properties": {
+              "mimeType": {
+                "const": "audio/ogg"
+              },
+              "codec": {
+                "const": "opus"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "image"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "width",
+              "height"
+            ],
+            "properties": {
+              "mimeType": {
+                "const": "image/webp"
+              },
+              "codec": {
+                "const": "webp"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "line": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "reactionKey",
+        "text",
+        "weight",
+        "cooldownSeconds"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "reactionKey": {
+          "$ref": "#/$defs/reactionKey"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "audioAssetId": {
+          "$ref": "#/$defs/id"
+        },
+        "weight": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "cooldownSeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 86400
+        }
+      }
+    },
+    "fileEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256",
+        "sizeBytes"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "sizeBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483648
+        }
+      }
+    }
+  }
+}
