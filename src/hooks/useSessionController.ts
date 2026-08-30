@@ -191,6 +191,30 @@ export function useSessionController() {
     }
   };
 
+  const previewPatrol = async (): Promise<void> => {
+    if (desktopApi) {
+      setError("SESSION_MANUAL_PATROL_UNAVAILABLE");
+      return;
+    }
+    await run(undefined, (current) => {
+      const eligible = current.focusedSeconds < MINIMUM_PREVIEW_PATROL_SECOND
+        ? advanceSession(current, {
+            type: "tick",
+            seconds: MINIMUM_PREVIEW_PATROL_SECOND - current.focusedSeconds,
+          })
+        : current;
+      return advanceSession(eligible, { type: "trigger-patrol" });
+    });
+  };
+
+  const observe = async (label: ObservationLabel): Promise<void> => {
+    if (desktopApi) {
+      setError("SESSION_MANUAL_OBSERVATION_UNAVAILABLE");
+      return;
+    }
+    await run(undefined, (current) => advanceSession(current, { type: "record-observation", label }));
+  };
+
   return {
     snapshot,
     history,
@@ -208,22 +232,8 @@ export function useSessionController() {
       desktopApi ? () => desktopApi.resumeSession(requireId()) : undefined,
       (current) => advanceSession(current, { type: "resume" }),
     ),
-    previewPatrol: () => run(
-      desktopApi ? () => desktopApi.previewSessionPatrol(requireId()) : undefined,
-      (current) => {
-        const eligible = current.focusedSeconds < MINIMUM_PREVIEW_PATROL_SECOND
-          ? advanceSession(current, {
-              type: "tick",
-              seconds: MINIMUM_PREVIEW_PATROL_SECOND - current.focusedSeconds,
-            })
-          : current;
-        return advanceSession(eligible, { type: "trigger-patrol" });
-      },
-    ),
-    observe: (label: ObservationLabel) => run(
-      desktopApi ? () => desktopApi.recordSessionObservation(requireId(), label) : undefined,
-      (current) => advanceSession(current, { type: "record-observation", label }),
-    ),
+    previewPatrol,
+    observe,
     completeFeedback: () => run(
       desktopApi ? () => desktopApi.completeSessionFeedback(requireId()) : undefined,
       (current) => advanceSession(current, { type: "complete-feedback" }),

@@ -33,7 +33,6 @@ import {
   type ReactionKey,
 } from "../shared/partner-pack.js";
 import {
-  OBSERVATION_LABELS,
   type ObservationLabel,
   type SessionFinishMode,
   type StartSessionInput,
@@ -558,21 +557,6 @@ function registerIpc(): void {
   ipcMain.handle("session:resume", (event, sessionId: unknown) => {
     requireMainSender(event);
     return sessionService?.resume(requireSessionId(sessionId));
-  });
-  ipcMain.handle("session:preview-patrol", (event, sessionId: unknown) => {
-    requireMainSender(event);
-    return sessionService?.previewPatrol(requireSessionId(sessionId));
-  });
-  ipcMain.handle("session:trigger-patrol", (event, sessionId: unknown) => {
-    requireMainSender(event);
-    return sessionService?.triggerPatrol(requireSessionId(sessionId));
-  });
-  ipcMain.handle("session:record-observation", (event, sessionId: unknown, label: unknown) => {
-    requireMainSender(event);
-    if (typeof label !== "string" || !OBSERVATION_LABELS.includes(label as ObservationLabel)) {
-      throw new Error("IPC_INVALID_PAYLOAD");
-    }
-    return sessionService?.recordObservation(requireSessionId(sessionId), label as ObservationLabel);
   });
   ipcMain.handle("session:complete-feedback", (event, sessionId: unknown) => {
     requireMainSender(event);

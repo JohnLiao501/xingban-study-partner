@@ -26,6 +26,9 @@ export function SessionSetupDialog({
   const [plannedMinutes, setPlannedMinutes] = useState(25);
   const [sources, setSources] = useState<CaptureSourceSummary[]>([]);
   const [selectedSourceId, setSelectedSourceId] = useState<string>("");
+  const [sourcesLoaded, setSourcesLoaded] = useState(false);
+  const [sourcesLoading, setSourcesLoading] = useState(false);
+  const [sourceLoadError, setSourceLoadError] = useState<string>();
   const [visionSettings, setVisionSettings] = useState<VisionSettingsView | null>(null);
   const [visionEnabled, setVisionEnabled] = useState(false);
   const [sendWindowTitle, setSendWindowTitle] = useState(false);
@@ -34,11 +37,6 @@ export function SessionSetupDialog({
   useEffect(() => {
     const api = window.studyPartner;
     if (!api) return;
-
-    // 获取可用屏幕列表
-    void api.listCaptureSources().then((list) => {
-      setSources(list);
-    }).catch(() => {});
 
     // 获取视觉设置（确认密钥是否配置）
     void api.getVisionSettings().then((settings) => {
@@ -53,6 +51,28 @@ export function SessionSetupDialog({
 
   const allowCount = rules.filter((r) => r.enabled && r.decision === "allow").length;
   const blockCount = rules.filter((r) => r.enabled && r.decision === "block").length;
+
+  const loadCaptureSources = async () => {
+    const api = window.studyPartner;
+    if (!api || sourcesLoading) return;
+
+    setSourcesLoading(true);
+    setSourceLoadError(undefined);
+    try {
+      const list = await api.listCaptureSources();
+      setSources(list);
+      setSourcesLoaded(true);
+      setSelectedSourceId((current) => list.some((source) => source.id === current) ? current : "");
+      if (list.length === 0) setSourceLoadError("未发现可用显示器，可稍后重试");
+    } catch {
+      setSources([]);
+      setSourcesLoaded(true);
+      setSelectedSourceId("");
+      setSourceLoadError("读取屏幕列表失败；本场仍可仅使用本地规则");
+    } finally {
+      setSourcesLoading(false);
+    }
+  };
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -111,18 +131,34 @@ export function SessionSetupDialog({
 
         <label className="session-field">
           <span>巡查屏幕选择</span>
-          <select
-            onChange={(event) => setSelectedSourceId(event.target.value)}
-            value={selectedSourceId}
-          >
-            <option value="">不共享屏幕（仅通过本地规则与前台应用判断）</option>
-            {sources.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name || `屏幕 ${s.id}`}
-              </option>
-            ))}
-          </select>
-          <small>选择屏幕后，仅当本地规则无法判断时截取 768px 单帧，不录屏不落盘</small>
+          <div className="capture-source-picker">
+            <select
+              disabled={sourcesLoading || !sourcesLoaded}
+              onChange={(event) => setSelectedSourceId(event.target.value)}
+              value={selectedSourceId}
+            >
+              <option value="">不共享屏幕（仅通过本地规则与前台应用判断）</option>
+              {sources.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name || `屏幕 ${s.id}`}
+                </option>
+              ))}
+            </select>
+            <button
+              className="button button--secondary"
+              disabled={!window.studyPartner || sourcesLoading}
+              onClick={() => void loadCaptureSources()}
+              type="button"
+            >
+              {sourcesLoading ? "正在读取…" : sourcesLoaded ? "刷新列表" : "加载可用屏幕"}
+            </button>
+          </div>
+          <small className={sourceLoadError ? "session-field__error" : undefined} role="status">
+            {sourceLoadError
+              ?? (sourcesLoaded
+                ? "选择屏幕后，仅当本地规则无法判断时截取 768px 单帧，不录屏不落盘"
+                : "仅在你主动加载后读取屏幕列表；不加载则只使用本地规则")}
+          </small>
         </label>
 
         {selectedSourceId ? (

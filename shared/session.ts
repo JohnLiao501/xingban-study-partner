@@ -115,12 +115,6 @@ export interface SessionControllerApi {
   startSession: (input: StartSessionInput) => Promise<SessionSnapshot>;
   pauseSession: (sessionId: string) => Promise<SessionSnapshot>;
   resumeSession: (sessionId: string) => Promise<SessionSnapshot>;
-  previewSessionPatrol: (sessionId: string) => Promise<SessionSnapshot>;
-  triggerSessionPatrol: (sessionId: string) => Promise<SessionSnapshot>;
-  recordSessionObservation: (
-    sessionId: string,
-    label: ObservationLabel,
-  ) => Promise<SessionSnapshot>;
   completeSessionFeedback: (sessionId: string) => Promise<SessionSnapshot>;
   startSessionBreak: (sessionId: string) => Promise<SessionSnapshot>;
   finishSession: (

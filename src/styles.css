@@ -923,6 +923,13 @@ input:focus-visible {
   background: rgba(128, 48, 57, 0.18);
 }
 
+.inspection-choice--automatic small {
+  grid-column: 1 / -1;
+  color: #7189a1;
+  font-size: 10px;
+  line-height: 1.6;
+}
+
 .session-result {
   display: grid;
   justify-items: center;
@@ -1471,6 +1478,37 @@ input:focus-visible {
 .session-field small {
   color: #637a92;
   font-size: 10px;
+}
+
+.session-field .session-field__error {
+  color: #f2ad72;
+}
+
+.capture-source-picker {
+  display: grid;
+  align-items: stretch;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.capture-source-picker select {
+  min-width: 0;
+  height: 46px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  background: #071321;
+}
+
+.capture-source-picker select:disabled {
+  color: #6f8498;
+  cursor: not-allowed;
+}
+
+.capture-source-picker .button {
+  min-width: 116px;
+  white-space: nowrap;
 }
 
 .session-field:first-of-type small {

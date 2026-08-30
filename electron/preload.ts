@@ -6,7 +6,6 @@ import type {
   StudyPartnerApi,
 } from "../shared/partner-pack.js";
 import type {
-  ObservationLabel,
   SessionFinishMode,
   SessionHistoryEntry,
   SessionSnapshot,
@@ -36,9 +35,6 @@ const mainApi: MainStudyPartnerApi = {
   startSession: (input: StartSessionInput) => ipcRenderer.invoke("session:start", input) as Promise<SessionSnapshot>,
   pauseSession: (sessionId: string) => ipcRenderer.invoke("session:pause", sessionId) as Promise<SessionSnapshot>,
   resumeSession: (sessionId: string) => ipcRenderer.invoke("session:resume", sessionId) as Promise<SessionSnapshot>,
-  previewSessionPatrol: (sessionId: string) => ipcRenderer.invoke("session:preview-patrol", sessionId) as Promise<SessionSnapshot>,
-  triggerSessionPatrol: (sessionId: string) => ipcRenderer.invoke("session:trigger-patrol", sessionId) as Promise<SessionSnapshot>,
-  recordSessionObservation: (sessionId: string, label: ObservationLabel) => ipcRenderer.invoke("session:record-observation", sessionId, label) as Promise<SessionSnapshot>,
   completeSessionFeedback: (sessionId: string) => ipcRenderer.invoke("session:complete-feedback", sessionId) as Promise<SessionSnapshot>,
   startSessionBreak: (sessionId: string) => ipcRenderer.invoke("session:start-break", sessionId) as Promise<SessionSnapshot>,
   finishSession: (sessionId: string, mode: SessionFinishMode) => ipcRenderer.invoke("session:finish", sessionId, mode) as Promise<SessionSnapshot>,

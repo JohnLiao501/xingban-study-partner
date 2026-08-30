@@ -8,6 +8,7 @@ import type { CaptureStatus } from "../../shared/inspection";
 
 interface SessionPanelProps {
   snapshot: SessionSnapshot;
+  manualInspectionControls: boolean;
   onCompleteFeedback: () => void;
   onFinish: (mode: SessionFinishMode) => void;
   onNewSession: () => void;
@@ -38,6 +39,7 @@ function formatDuration(seconds: number): string {
 
 export function SessionPanel({
   snapshot,
+  manualInspectionControls,
   onCompleteFeedback,
   onFinish,
   onNewSession,
@@ -140,12 +142,17 @@ export function SessionPanel({
             <p>完成率 {Math.round(snapshot.outcome.completionRatio * 100)}% · 信赖 +{snapshot.outcome.trustGained}</p>
             <button className="button button--primary" onClick={onNewSession} type="button">开始新一场</button>
           </div>
-        ) : snapshot.phase === "patrolling" ? (
+        ) : snapshot.phase === "patrolling" && manualInspectionControls ? (
           <div className="inspection-choice">
             <p>模拟本次巡查判断</p>
             <button onClick={() => onObserve("focused")} type="button">专注</button>
             <button onClick={() => onObserve("uncertain")} type="button">不确定</button>
             <button className="inspection-choice__danger" onClick={() => onObserve("distracted")} type="button">明确分心</button>
+          </div>
+        ) : snapshot.phase === "patrolling" ? (
+          <div className="inspection-choice inspection-choice--automatic" role="status">
+            <p>正在执行本地规则与可选 AI 巡查…</p>
+            <small>结果由主进程自动回写；不确定结果不会处罚。</small>
           </div>
         ) : snapshot.phase === "feedback" && snapshot.plannedReached ? (
           <div className="session-actions-stack">
@@ -168,12 +175,18 @@ export function SessionPanel({
             <button className="button button--primary" onClick={snapshot.paused ? onResume : onPause} type="button">
               {snapshot.paused ? "继续计时" : "暂停计时"}
             </button>
-            <button className="button button--secondary" disabled={snapshot.paused} onClick={onPreviewPatrol} type="button">模拟一次巡查</button>
+            {manualInspectionControls ? (
+              <button className="button button--secondary" disabled={snapshot.paused} onClick={onPreviewPatrol} type="button">模拟一次巡查</button>
+            ) : null}
             <div className="session-secondary-actions">
               <button onClick={() => onFinish("completed")} type="button">提前完成</button>
               <button className="text-danger" onClick={() => onFinish("aborted")} type="button">放弃本场</button>
             </div>
-            <small>模拟巡查会快进至开工后 2 分钟，仅用于阶段 2 验收。</small>
+            <small>
+              {manualInspectionControls
+                ? "模拟巡查会快进至开工后 2 分钟，仅用于浏览器预览。"
+                : "桌面版巡查由主进程随机触发，本地规则拥有最高优先级。"}
+            </small>
           </div>
         )}
       </div>

@@ -55,8 +55,12 @@ describe("ElectronCaptureService", () => {
     const pm = new PermissionManager();
     const sentMessages: { channel: string; data?: unknown }[] = [];
     const win = createMockWindow((channel, data) => sentMessages.push({ channel, data }));
+    let sourceProviderCallCount = 0;
 
-    const service = new ElectronCaptureService(() => win, pm, 3000, sourceProvider);
+    const service = new ElectronCaptureService(() => win, pm, 3000, async () => {
+      sourceProviderCallCount += 1;
+      return sourceProvider();
+    });
     const success = await service.startCapture("screen:1");
 
     expect(success).toBe(true);
@@ -67,6 +71,17 @@ describe("ElectronCaptureService", () => {
     expect(sentMessages).toHaveLength(1);
     expect(sentMessages[0]?.channel).toBe("capture:init-stream");
     expect(sentMessages[0]?.data).toBeUndefined();
+    expect(sourceProviderCallCount).toBe(0);
+  });
+
+  it("startCapture 在进入最终 display-media 校验前拒绝空或超长 sourceId", async () => {
+    const pm = new PermissionManager();
+    const win = createMockWindow(() => {});
+    const service = new ElectronCaptureService(() => win, pm, 3000, sourceProvider);
+
+    expect(await service.startCapture("")).toBe(false);
+    expect(await service.startCapture("x".repeat(501))).toBe(false);
+    expect(pm.hasActiveCaptureAuth()).toBe(false);
   });
 
   it("captureFrame 存在并发互斥限制，避免同时重复请求", async () => {

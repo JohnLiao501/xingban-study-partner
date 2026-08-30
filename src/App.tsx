@@ -258,6 +258,7 @@ export default function App() {
 
             {session.snapshot ? (
               <SessionPanel
+                manualInspectionControls={!desktopRuntime}
                 onCompleteFeedback={() => void session.completeFeedback()}
                 onFinish={(mode) => void session.finish(mode)}
                 onNewSession={() => setSetupOpen(true)}

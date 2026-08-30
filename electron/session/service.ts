@@ -77,7 +77,7 @@ export class SessionService {
 
   /**
    * 应用已经由 InspectionEngine 单独持久化的结构化观察，只推进会话状态。
-   * 与 renderer 的手工预览入口分离，避免同一次巡查写入两条 observation。
+   * 与浏览器预览使用的纯状态机手工入口分离，避免同一次巡查写入两条 observation。
    */
   applyInspectionResult(sessionId: string, label: ObservationLabel): SessionSnapshot {
     return this.command(sessionId, { type: "record-observation", label });

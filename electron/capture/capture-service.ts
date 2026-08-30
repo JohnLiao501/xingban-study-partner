@@ -136,18 +136,12 @@ export class ElectronCaptureService implements CaptureService {
 
   async startCapture(sourceId: string): Promise<boolean> {
     const win = this.getCaptureWindow();
-    if (!win || win.isDestroyed()) {
+    if (!win || win.isDestroyed() || sourceId.length < 1 || sourceId.length > 500) {
       this.setStatus("failed");
       return false;
     }
 
     try {
-      const sources = await this.listSources();
-      if (!sources.some((source) => source.id === sourceId)) {
-        this.setStatus("failed");
-        return false;
-      }
-
       if (this.status === "active" || this.status === "starting") {
         await this.stopCapture();
       }
@@ -155,8 +149,9 @@ export class ElectronCaptureService implements CaptureService {
       // 1. 发放单次授权 token 给 permissionManager
       this.permissionManager.issueCaptureAuth(sourceId);
 
-      // 2. 向 captureWindow 发送初始化流指令；sourceId 只留在主进程，
-      //    Electron display-media handler 会强制返回该源。
+      // 2. 向 captureWindow 发送初始化流指令；sourceId 只留在主进程。
+      //    Electron display-media handler 会重新枚举并强制返回当前仍存在的该源，
+      //    因此这里不重复调用 desktopCapturer，避免一次无意义的系统捕获初始化。
       this.activeSourceId = sourceId;
       win.webContents.send("capture:init-stream");
       this.setStatus("starting");

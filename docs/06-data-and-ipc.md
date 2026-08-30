@@ -131,7 +131,7 @@ API 密钥明文不进入此表。主进程先用 Electron `safeStorage` 加密�
 - 主进程把输入视为 `unknown`，运行严格白名单校验：拒绝额外/缺失字段、未知枚举、超长字符串、非法 URL、重复规则 ID 和越界数值。
 - renderer 不传入任意安装路径；伙伴目录只由主进程系统选择器取得。
 - preload 按窗口拆分，主进程再按 `event.sender === expectedWindow.webContents` 校验：主窗口、悬浮窗和截图窗不能互调能力。
-- 会话时间、巡查结果、数据库与系统能力以主进程为准。`session:record-observation` 仅保留给阶段 2 手工预览；自动巡查通过内部服务入口推进状态，避免重复持久化。
+- 会话时间、巡查结果、数据库与系统能力以主进程为准。浏览器预览的手工巡查只直接调用共享纯状态机，不进入 Electron IPC；桌面 preload 不暴露手工巡查触发或结果提交能力，自动巡查只通过主进程内部服务入口推进状态。
 
 ## 4. 请求/响应频道
 
@@ -149,15 +149,12 @@ API 密钥明文不进入此表。主进程先用 Electron `safeStorage` 加密�
 | `session:get-active` | 无 | 当前会话快照或 null。 |
 | `session:start` | `StartSessionInput` | 会话快照。 |
 | `session:pause` / `session:resume` | sessionId | 会话快照。 |
-| `session:preview-patrol` | sessionId | 阶段 2 验收用快进巡查快照。 |
-| `session:trigger-patrol` | sessionId | 立即巡查；仍受状态机保护。 |
-| `session:record-observation` | sessionId、`ObservationLabel` | 手工预览后的反馈快照。 |
 | `session:complete-feedback` / `session:start-break` | sessionId | 会话快照。 |
 | `session:finish` | sessionId、mode | 结算结果。 |
 | `history:list` | limit 1～200 | 会话历史摘要。 |
 | `history:list-observations` | sessionId | 脱敏结构化观察列表。 |
 | `rules:list` / `rules:save` / `rules:delete` | 无 / 严格规则对象 / ruleId | 规则结果。 |
-| `capture:list-sources` | 无 | 仅显示器类型的脱敏摘要。 |
+| `capture:list-sources` | 无；仅由用户点击“加载可用屏幕”触发 | 仅显示器类型的脱敏摘要。 |
 | `capture:stop` | 无 | 无；学习会话继续。 |
 | `settings:get-vision` | 无 | 不含密钥的 `VisionSettingsView`。 |
 | `settings:save-vision` | 严格设置对象，可短暂含 apiKey/clearApiKey | 不含密钥的设置视图。 |
