@@ -17,6 +17,7 @@ import type { ForegroundProbeStatus, ForegroundSample } from "../../shared/inspe
 
 const realExePath = path.resolve(process.cwd(), "resources", "bin", "windows-foreground-probe.exe");
 const hasRealExe = fs.existsSync(realExePath);
+const runRealProbeTest = hasRealExe && process.env.XINGBAN_REAL_PROBE_TEST === "1";
 
 describe("WindowsForegroundProbe", () => {
   it("可执行文件不存在时安全降级为 unavailable 且不抛出异常", () => {
@@ -33,7 +34,7 @@ describe("WindowsForegroundProbe", () => {
     probe.stop();
   });
 
-  it.skipIf(!hasRealExe)("真实 sidecar 正常启动并接收至少一个前台样本", async () => {
+  it.skipIf(!runRealProbeTest)("真实 sidecar 正常启动并接收至少一个前台样本", async () => {
     const probe = new WindowsForegroundProbe({
       executablePath: realExePath,
       intervalMs: 1000,

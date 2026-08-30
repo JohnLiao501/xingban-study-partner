@@ -48,7 +48,7 @@ export interface ObservationRecord {
   confirmedDeviation: boolean;
 }
 
-export const CAPTURE_STATUSES = ["inactive", "active", "stopped", "failed"] as const;
+export const CAPTURE_STATUSES = ["inactive", "starting", "active", "stopped", "failed"] as const;
 export type CaptureStatus = (typeof CAPTURE_STATUSES)[number];
 
 /** 屏幕捕获源脱敏摘要 */
@@ -63,10 +63,11 @@ export interface CaptureControllerApi {
   stopCapture: () => Promise<void>;
   onCaptureStatusChanged: (listener: (status: CaptureStatus) => void) => () => void;
   // 截图工作窗口专用通道
-  onCaptureInitStream?: (listener: (payload: { sourceId: string }) => void) => () => void;
+  onCaptureInitStream?: (listener: () => void) => () => void;
   onCaptureRequestFrame?: (listener: () => void) => () => void;
   onCaptureStopStream?: (listener: () => void) => () => void;
   sendCaptureFrame?: (frameData: Uint8Array | null) => Promise<void>;
+  notifyCaptureStreamReady?: () => Promise<void>;
   notifyCaptureStreamEnded?: () => Promise<void>;
 }
 
@@ -105,7 +106,7 @@ export const INPUT_LIMITS = {
   PROCESS_NAME_MAX_LENGTH: 260,
   WINDOW_TITLE_MAX_LENGTH: 500,
   MAX_RULES_PER_SESSION: 100,
-  RULE_PATTERN_MAX_LENGTH: 260,
+  RULE_PATTERN_MAX_LENGTH: 200,
   API_BASE_URL_MAX_LENGTH: 2048,
   MODEL_NAME_MAX_LENGTH: 200,
 } as const;
@@ -133,6 +134,9 @@ export function validateForegroundSample(input: unknown): ForegroundSample {
   if (typeof record.capturedAt !== "string") {
     throw new InspectionValidationError("capturedAt 必须是字符串");
   }
+  if (!record.capturedAt.endsWith("Z") || !Number.isFinite(Date.parse(record.capturedAt))) {
+    throw new InspectionValidationError("capturedAt 必须是有效的 UTC ISO 8601 时间");
+  }
   if (typeof record.processName !== "string") {
     throw new InspectionValidationError("processName 必须是字符串");
   }
@@ -145,8 +149,8 @@ export function validateForegroundSample(input: unknown): ForegroundSample {
   if (record.windowTitle.length > INPUT_LIMITS.WINDOW_TITLE_MAX_LENGTH) {
     throw new InspectionValidationError("windowTitle 长度超出限制");
   }
-  if (typeof record.pid !== "number" || record.pid < 0) {
-    throw new InspectionValidationError("pid 必须是大于等于 0 的数字");
+  if (typeof record.pid !== "number" || !Number.isSafeInteger(record.pid) || record.pid < 0) {
+    throw new InspectionValidationError("pid 必须是大于等于 0 的安全整数");
   }
 
   return {

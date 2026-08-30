@@ -40,6 +40,8 @@ describe("FakeCaptureService", () => {
 });
 
 describe("ElectronCaptureService", () => {
+  const sourceProvider = async () => [{ id: "screen:1", name: "显示器 1" }];
+
   function createMockWindow(sendSpy: (channel: string, data?: unknown) => void) {
     return {
       isDestroyed: () => false,
@@ -54,23 +56,26 @@ describe("ElectronCaptureService", () => {
     const sentMessages: { channel: string; data?: unknown }[] = [];
     const win = createMockWindow((channel, data) => sentMessages.push({ channel, data }));
 
-    const service = new ElectronCaptureService(() => win, pm);
+    const service = new ElectronCaptureService(() => win, pm, 3000, sourceProvider);
     const success = await service.startCapture("screen:1");
 
     expect(success).toBe(true);
+    expect(service.getStatus()).toBe("starting");
+    service.handleStreamReady();
     expect(service.getStatus()).toBe("active");
     expect(pm.hasActiveCaptureAuth()).toBe(true);
     expect(sentMessages).toHaveLength(1);
     expect(sentMessages[0]?.channel).toBe("capture:init-stream");
-    expect(sentMessages[0]?.data).toEqual({ sourceId: "screen:1" });
+    expect(sentMessages[0]?.data).toBeUndefined();
   });
 
   it("captureFrame 存在并发互斥限制，避免同时重复请求", async () => {
     const pm = new PermissionManager();
     const win = createMockWindow(() => {});
 
-    const service = new ElectronCaptureService(() => win, pm, 100);
+    const service = new ElectronCaptureService(() => win, pm, 100, sourceProvider);
     await service.startCapture("screen:1");
+    service.handleStreamReady();
 
     // 第一个请求正在等待响应
     const p1 = service.captureFrame();
@@ -80,7 +85,7 @@ describe("ElectronCaptureService", () => {
     expect(p2).toBeNull();
 
     // 灌入第一个请求的数据
-    const fakeFrame = new Uint8Array([0xff, 0xd8, 0xff]); // JPEG magic header
+    const fakeFrame = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
     service.handleIncomingFrame(fakeFrame);
 
     const r1 = await p1;
@@ -92,16 +97,35 @@ describe("ElectronCaptureService", () => {
     const win = createMockWindow(() => {});
 
     // 超时设置为 20ms
-    const service = new ElectronCaptureService(() => win, pm, 20);
+    const service = new ElectronCaptureService(() => win, pm, 20, sourceProvider);
     await service.startCapture("screen:1");
+    service.handleStreamReady();
 
     const frame = await service.captureFrame();
     expect(frame).toBeNull();
 
     // 超时后并发锁已释放，可以进行下一次请求
     const pNext = service.captureFrame();
-    service.handleIncomingFrame(new Uint8Array([1]));
-    expect(await pNext).toEqual(new Uint8Array([1]));
+    service.handleIncomingFrame(new Uint8Array([0xff, 0xd8, 0xff, 0xd9]));
+    expect(await pNext).toEqual(new Uint8Array([0xff, 0xd8, 0xff, 0xd9]));
+  });
+
+  it("拒绝非 JPEG、缺少结束标记或超大帧", async () => {
+    const pm = new PermissionManager();
+    const win = createMockWindow(() => {});
+    const service = new ElectronCaptureService(() => win, pm, 100, sourceProvider);
+    await service.startCapture("screen:1");
+    service.handleStreamReady();
+
+    for (const invalidFrame of [
+      new Uint8Array([1, 2, 3, 4]),
+      new Uint8Array([0xff, 0xd8, 0, 0]),
+      new Uint8Array(2 * 1024 * 1024 + 1),
+    ]) {
+      const pending = service.captureFrame();
+      service.handleIncomingFrame(invalidFrame);
+      expect(await pending).toBeNull();
+    }
   });
 
   it("stopCapture 清理授权并通知窗口停止媒体流", async () => {
@@ -109,8 +133,9 @@ describe("ElectronCaptureService", () => {
     const sentMessages: string[] = [];
     const win = createMockWindow((channel) => sentMessages.push(channel));
 
-    const service = new ElectronCaptureService(() => win, pm);
+    const service = new ElectronCaptureService(() => win, pm, 3000, sourceProvider);
     await service.startCapture("screen:1");
+    service.handleStreamReady();
     expect(service.getStatus()).toBe("active");
 
     await service.stopCapture();

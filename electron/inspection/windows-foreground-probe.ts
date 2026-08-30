@@ -105,6 +105,8 @@ export class WindowsForegroundProbe implements ForegroundProbe {
     }
 
     this.sampleListeners = [];
+    this.latestSample = null;
+    this.lineBuffer = "";
     this.setStatus("stopped");
   }
 
@@ -133,6 +135,7 @@ export class WindowsForegroundProbe implements ForegroundProbe {
 
   private spawnProcess(): void {
     if (!fs.existsSync(this.executablePath)) {
+      this.latestSample = null;
       this.setStatus("unavailable");
       return;
     }
@@ -148,6 +151,13 @@ export class WindowsForegroundProbe implements ForegroundProbe {
 
       this.childProcess = child;
       this.setStatus("running");
+      let exitHandled = false;
+      const handleChildExit = (code: number) => {
+        if (exitHandled) return;
+        exitHandled = true;
+        if (this.childProcess === child) this.childProcess = null;
+        this.handleProcessExit(code);
+      };
 
       child.stdout?.setEncoding("utf8");
       child.stdout?.on("data", (chunk: string) => {
@@ -160,13 +170,14 @@ export class WindowsForegroundProbe implements ForegroundProbe {
       });
 
       child.on("error", () => {
-        this.handleProcessExit(-1);
+        handleChildExit(-1);
       });
 
       child.on("exit", (code) => {
-        this.handleProcessExit(code ?? 0);
+        handleChildExit(code ?? 0);
       });
     } catch {
+      this.latestSample = null;
       this.setStatus("unavailable");
     }
   }
@@ -211,7 +222,6 @@ export class WindowsForegroundProbe implements ForegroundProbe {
   }
 
   private handleProcessExit(code: number): void {
-    this.childProcess = null;
     if (this.isIntentionallyStopped) {
       this.setStatus("stopped");
       return;
@@ -222,12 +232,14 @@ export class WindowsForegroundProbe implements ForegroundProbe {
       this.restartCount += 1;
       this.setStatus("restarting");
       this.restartTimer = setTimeout(() => {
+        this.restartTimer = null;
         if (!this.isIntentionallyStopped) {
           this.spawnProcess();
         }
       }, this.restartDelayMs);
     } else {
       // 超过重启上限，进入降级状态 unavailable
+      this.latestSample = null;
       this.setStatus("unavailable");
     }
   }

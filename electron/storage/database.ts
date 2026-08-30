@@ -181,7 +181,7 @@ export class XingbanDatabase {
       INSERT INTO observations (
         id, session_id, observed_at, label, confidence, source, reason_code,
         app_name, window_title_hash, confirmed_deviation
-      ) VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, 'fallback', 'manual-preview', NULL, NULL, ?)
+      ) VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, 'fallback', 'insufficient_evidence', NULL, NULL, ?)
     `).run(
       snapshot.sessionId,
       new Date().toISOString(),

@@ -112,10 +112,12 @@ export class ElectronCaptureService implements CaptureService {
     private readonly getCaptureWindow: () => BrowserWindow | null,
     private readonly permissionManager: PermissionManager,
     private readonly frameTimeoutMs = 3000,
+    private readonly sourceProvider?: () => Promise<CaptureSourceSummary[]>,
   ) {}
 
   async listSources(): Promise<CaptureSourceSummary[]> {
     try {
+      if (this.sourceProvider) return await this.sourceProvider();
       // 仅获取全屏显示器类型，不获取单一应用窗口，最大限度保护隐私
       const sources = await desktopCapturer.getSources({
         types: ["screen"],
@@ -140,19 +142,42 @@ export class ElectronCaptureService implements CaptureService {
     }
 
     try {
+      const sources = await this.listSources();
+      if (!sources.some((source) => source.id === sourceId)) {
+        this.setStatus("failed");
+        return false;
+      }
+
+      if (this.status === "active" || this.status === "starting") {
+        await this.stopCapture();
+      }
+
       // 1. 发放单次授权 token 给 permissionManager
       this.permissionManager.issueCaptureAuth(sourceId);
 
-      // 2. 向 captureWindow 发送初始化流指令
+      // 2. 向 captureWindow 发送初始化流指令；sourceId 只留在主进程，
+      //    Electron display-media handler 会强制返回该源。
       this.activeSourceId = sourceId;
-      win.webContents.send("capture:init-stream", { sourceId });
-      this.setStatus("active");
+      win.webContents.send("capture:init-stream");
+      this.setStatus("starting");
       return true;
     } catch {
       this.permissionManager.revokeCaptureAuth();
       this.setStatus("failed");
       return false;
     }
+  }
+
+  /** 截图窗口确认 MediaStream 已建立后才进入 active。 */
+  handleStreamReady(): void {
+    if (this.status === "starting" && this.activeSourceId) {
+      this.setStatus("active");
+    }
+  }
+
+  /** 供主进程显示媒体授权回调确认本次异步选源仍属于当前启动流程。 */
+  isAwaitingStream(sourceId: string): boolean {
+    return this.status === "starting" && this.activeSourceId === sourceId;
   }
 
   async captureFrame(): Promise<Uint8Array | null> {
@@ -196,13 +221,21 @@ export class ElectronCaptureService implements CaptureService {
   /** 接收来自 captureWindow 的单帧二进制数据 */
   handleIncomingFrame(frameData: Uint8Array | null): void {
     if (this.pendingFrameResolve) {
-      this.pendingFrameResolve(frameData);
+      const validFrame = frameData === null || (
+        frameData.byteLength >= 4 &&
+        frameData.byteLength <= 2 * 1024 * 1024 &&
+        frameData[0] === 0xff &&
+        frameData[1] === 0xd8 &&
+        frameData[frameData.byteLength - 2] === 0xff &&
+        frameData[frameData.byteLength - 1] === 0xd9
+      );
+      this.pendingFrameResolve(validFrame ? frameData : null);
     }
   }
 
   /** 接收来自 captureWindow 的流结束通知 */
   handleStreamEnded(): void {
-    this.stopCapture();
+    void this.stopCapture();
   }
 
   async stopCapture(): Promise<void> {

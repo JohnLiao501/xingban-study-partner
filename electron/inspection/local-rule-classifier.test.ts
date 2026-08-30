@@ -28,6 +28,9 @@ function createRule(
 
 describe("LocalRuleClassifier", () => {
   let classifier: LocalRuleClassifier;
+  const baseTime = Date.parse("2026-08-29T08:00:00.000Z");
+  const sampleAt = (processName: string, seconds: number, windowTitle = "") =>
+    createSample(processName, windowTitle, 1234, new Date(baseTime + seconds * 1000).toISOString());
 
   beforeEach(() => {
     classifier = new LocalRuleClassifier();
@@ -64,9 +67,8 @@ describe("LocalRuleClassifier", () => {
 
   it("block 不足 20 秒时返回 unknown (block_duration_insufficient)", () => {
     const rules = [createRule("block", "process", "bilibili")];
-    // 每次 classify 累加 5 秒，3 次 = 15 秒，不足 20 秒
-    for (let i = 0; i < 3; i++) {
-      const result = classifier.classify(createSample("bilibili"), rules);
+    for (const seconds of [0, 5, 10, 15]) {
+      const result = classifier.classify(sampleAt("bilibili", seconds), rules);
       expect(result.verdict).toBe("unknown");
       expect(result.reason).toBe("block_duration_insufficient");
     }
@@ -74,20 +76,19 @@ describe("LocalRuleClassifier", () => {
 
   it("block 达到 20 秒时确认 distracted", () => {
     const rules = [createRule("block", "process", "bilibili")];
-    // 4 次 × 5 秒 = 20 秒
     let lastResult;
-    for (let i = 0; i < 4; i++) {
-      lastResult = classifier.classify(createSample("bilibili"), rules);
+    for (const seconds of [0, 5, 10, 15, 20]) {
+      lastResult = classifier.classify(sampleAt("bilibili", seconds), rules);
     }
     expect(lastResult!.verdict).toBe("distracted");
     expect(lastResult!.reason).toBe("blocked_app");
   });
 
-  it("block 恰好 15 秒 (3次) 不确认", () => {
+  it("block 恰好 15 秒不确认", () => {
     const rules = [createRule("block", "process", "game")];
     let result;
-    for (let i = 0; i < 3; i++) {
-      result = classifier.classify(createSample("game"), rules);
+    for (const seconds of [0, 5, 10, 15]) {
+      result = classifier.classify(sampleAt("game", seconds), rules);
     }
     expect(result!.verdict).toBe("unknown");
   });
@@ -97,26 +98,23 @@ describe("LocalRuleClassifier", () => {
       createRule("block", "process", "bilibili"),
       createRule("block", "process", "youtube"),
     ];
-    // bilibili 2 次 = 10 秒
-    classifier.classify(createSample("bilibili"), rules);
-    classifier.classify(createSample("bilibili"), rules);
+    classifier.classify(sampleAt("bilibili", 0), rules);
+    classifier.classify(sampleAt("bilibili", 5), rules);
+    classifier.classify(sampleAt("bilibili", 10), rules);
     // 切换到 youtube，累计应该重置
-    classifier.classify(createSample("youtube"), rules);
-    // youtube 再 2 次 = 10 秒（加上切换那次共 15 秒，不应触发）
-    classifier.classify(createSample("youtube"), rules);
-    const r3 = classifier.classify(createSample("youtube"), rules);
+    classifier.classify(sampleAt("youtube", 15), rules);
+    classifier.classify(sampleAt("youtube", 20), rules);
+    const r3 = classifier.classify(sampleAt("youtube", 25), rules);
     expect(r3.verdict).toBe("unknown");
   });
 
   it("确认 distracted 后累计重置", () => {
     const rules = [createRule("block", "process", "bilibili")];
-    // 先触发一次 distracted（4×5=20秒）
-    for (let i = 0; i < 4; i++) {
-      classifier.classify(createSample("bilibili"), rules);
+    for (const seconds of [0, 5, 10, 15, 20]) {
+      classifier.classify(sampleAt("bilibili", seconds), rules);
     }
-    // 再来 3 次只有 15 秒，不应该触发
-    for (let i = 0; i < 3; i++) {
-      const result = classifier.classify(createSample("bilibili"), rules);
+    for (const seconds of [25, 30, 35, 40]) {
+      const result = classifier.classify(sampleAt("bilibili", seconds), rules);
       expect(result.verdict).toBe("unknown");
     }
   });
@@ -159,15 +157,14 @@ describe("LocalRuleClassifier", () => {
 
   it("探针不可用时重置 block 累计", () => {
     const rules = [createRule("block", "process", "bilibili")];
-    // 累计 15 秒
-    for (let i = 0; i < 3; i++) {
-      classifier.classify(createSample("bilibili"), rules);
+    for (const seconds of [0, 5, 10, 15]) {
+      classifier.classify(sampleAt("bilibili", seconds), rules);
     }
     // 探针中断
     classifier.classify(null, rules);
     // 恢复后从 0 开始累计
-    for (let i = 0; i < 3; i++) {
-      const result = classifier.classify(createSample("bilibili"), rules);
+    for (const seconds of [20, 25, 30, 35]) {
+      const result = classifier.classify(sampleAt("bilibili", seconds), rules);
       expect(result.verdict).toBe("unknown");
       expect(result.reason).toBe("block_duration_insufficient");
     }
@@ -215,5 +212,14 @@ describe("LocalRuleClassifier", () => {
     const result = classifier.classify(createSample("bilibili"), rules);
     expect(result.verdict).toBe("unknown");
     expect(result.reason).toBe("block_duration_insufficient");
+  });
+
+  it("连续样本间隔超过 10 秒时重置累计", () => {
+    const rules = [createRule("block", "process", "game")];
+    classifier.classify(sampleAt("game", 0), rules);
+    classifier.classify(sampleAt("game", 5), rules);
+    const afterGap = classifier.classify(sampleAt("game", 16), rules);
+    expect(afterGap.verdict).toBe("unknown");
+    expect(classifier.classify(sampleAt("game", 31), rules).verdict).toBe("unknown");
   });
 });

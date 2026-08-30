@@ -52,6 +52,17 @@ describe("validateForegroundSample", () => {
     ).toThrow(InspectionValidationError);
   });
 
+  it("拒绝无效 UTC 时间与非安全整数 PID", () => {
+    expect(() => validateForegroundSample({ ...validSample, capturedAt: "not-a-dateZ" }))
+      .toThrow(InspectionValidationError);
+    expect(() => validateForegroundSample({ ...validSample, capturedAt: "2026-08-29T08:00:00+08:00" }))
+      .toThrow(InspectionValidationError);
+    expect(() => validateForegroundSample({ ...validSample, pid: 1.5 }))
+      .toThrow(InspectionValidationError);
+    expect(() => validateForegroundSample({ ...validSample, pid: Number.MAX_SAFE_INTEGER + 1 }))
+      .toThrow(InspectionValidationError);
+  });
+
   it("拒绝 null 输入", () => {
     expect(() => validateForegroundSample(null)).toThrow(InspectionValidationError);
   });

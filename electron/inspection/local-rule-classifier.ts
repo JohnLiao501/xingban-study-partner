@@ -19,11 +19,11 @@ export type ClassificationResult =
   | { verdict: "distracted"; reason: "blocked_app" }
   | { verdict: "unknown"; reason: "no_match" | "conflict" | "probe_unavailable" | "block_duration_insufficient" };
 
-/** block 判定需要的最小连续持续时间（秒） */
-const BLOCK_CONFIRM_SECONDS = 20;
+/** block 判定需要的最小连续持续时间 */
+const BLOCK_CONFIRM_MS = 20_000;
 
-/** 采样间隔（秒），用于累计持续时间 */
-const SAMPLE_INTERVAL_SECONDS = 5;
+/** 超过两个常规采样周期仍无新样本时，不再视为连续。 */
+const MAX_CONSECUTIVE_SAMPLE_GAP_MS = 10_000;
 
 /**
  * 规范化进程名：去除首尾空白、转小写、去除 .exe 后缀
@@ -86,10 +86,12 @@ function ruleMatches(rule: AppRule, sample: ForegroundSample): boolean {
  * 每次调用 classify() 传入最新样本和本场规则，返回分类结果。
  */
 export class LocalRuleClassifier {
-  /** 当前累计的 block 连续秒数 */
-  private blockAccumulatedSeconds = 0;
-  /** 上次 block 匹配的进程名（用于检测应用切换） */
-  private lastBlockedProcessName: string | null = null;
+  private blockStartedAtMs: number | null = null;
+  private lastBlockSampleAtMs: number | null = null;
+  private blockIdentity: string | null = null;
+  private latestSampleKey: string | null = null;
+  private latestRulesKey: string | null = null;
+  private latestResult: ClassificationResult = { verdict: "unknown", reason: "probe_unavailable" };
 
   /**
    * 对当前样本进行本地规则分类
@@ -97,73 +99,127 @@ export class LocalRuleClassifier {
    * @param sample 最新前台样本，null 表示探针不可用
    * @param rules 本场启用的规则列表
    */
-  classify(
+  observe(
     sample: ForegroundSample | null,
     rules: AppRule[],
   ): ClassificationResult {
     // 探针不可用
     if (sample === null) {
       this.resetBlockAccumulation();
-      return { verdict: "unknown", reason: "probe_unavailable" };
+      return this.remember(null, rules, { verdict: "unknown", reason: "probe_unavailable" });
     }
 
     // 筛选启用的规则
     const enabledRules = rules.filter((r) => r.enabled);
     if (enabledRules.length === 0) {
       this.resetBlockAccumulation();
-      return { verdict: "unknown", reason: "no_match" };
+      return this.remember(sample, rules, { verdict: "unknown", reason: "no_match" });
     }
 
     // 检查哪些规则匹配
-    const matchedAllow = enabledRules.some(
+    const matchedAllowRules = enabledRules.filter(
       (r) => r.decision === "allow" && ruleMatches(r, sample),
     );
-    const matchedBlock = enabledRules.some(
+    const matchedBlockRules = enabledRules.filter(
       (r) => r.decision === "block" && ruleMatches(r, sample),
     );
+    const matchedAllow = matchedAllowRules.length > 0;
+    const matchedBlock = matchedBlockRules.length > 0;
 
     // allow 与 block 同时命中 → 冲突
     if (matchedAllow && matchedBlock) {
       this.resetBlockAccumulation();
-      return { verdict: "unknown", reason: "conflict" };
+      return this.remember(sample, rules, { verdict: "unknown", reason: "conflict" });
     }
 
     // allow 命中
     if (matchedAllow) {
       this.resetBlockAccumulation();
-      return { verdict: "focused", reason: "allowed_app" };
+      return this.remember(sample, rules, { verdict: "focused", reason: "allowed_app" });
     }
 
     // block 命中
     if (matchedBlock) {
-      const currentProcessName = normalizeProcessName(sample.processName);
+      const sampleAtMs = Date.parse(sample.capturedAt);
+      const currentIdentity = [
+        normalizeProcessName(sample.processName),
+        String(sample.pid),
+        ...matchedBlockRules.map((rule) => rule.id).sort(),
+      ].join("|");
+      const gapMs = this.lastBlockSampleAtMs === null ? 0 : sampleAtMs - this.lastBlockSampleAtMs;
+      const sequenceBroken = this.blockIdentity !== currentIdentity ||
+        this.lastBlockSampleAtMs === null ||
+        gapMs <= 0 ||
+        gapMs > MAX_CONSECUTIVE_SAMPLE_GAP_MS;
 
-      // 应用切换时重置累计
-      if (this.lastBlockedProcessName !== null &&
-          this.lastBlockedProcessName !== currentProcessName) {
+      if (sequenceBroken) {
+        this.blockStartedAtMs = sampleAtMs;
+      }
+      this.blockIdentity = currentIdentity;
+      this.lastBlockSampleAtMs = sampleAtMs;
+
+      const elapsedMs = sampleAtMs - (this.blockStartedAtMs ?? sampleAtMs);
+      if (elapsedMs >= BLOCK_CONFIRM_MS) {
         this.resetBlockAccumulation();
+        return this.remember(sample, rules, { verdict: "distracted", reason: "blocked_app" });
       }
 
-      this.lastBlockedProcessName = currentProcessName;
-      this.blockAccumulatedSeconds += SAMPLE_INTERVAL_SECONDS;
-
-      if (this.blockAccumulatedSeconds >= BLOCK_CONFIRM_SECONDS) {
-        // 确认分心，重置累计（下次从零开始）
-        this.resetBlockAccumulation();
-        return { verdict: "distracted", reason: "blocked_app" };
-      }
-
-      return { verdict: "unknown", reason: "block_duration_insufficient" };
+      return this.remember(sample, rules, { verdict: "unknown", reason: "block_duration_insufficient" });
     }
 
     // 无规则匹配
     this.resetBlockAccumulation();
-    return { verdict: "unknown", reason: "no_match" };
+    return this.remember(sample, rules, { verdict: "unknown", reason: "no_match" });
+  }
+
+  /** 向后兼容的测试入口；语义等同于接收一个新的探针样本。 */
+  classify(sample: ForegroundSample | null, rules: AppRule[]): ClassificationResult {
+    return this.observe(sample, rules);
+  }
+
+  /** 读取最近一个已观察样本的结果；未观察过该样本时只把它作为序列起点。 */
+  getCurrent(sample: ForegroundSample | null, rules: AppRule[]): ClassificationResult {
+    const sampleKey = sample ? this.sampleKey(sample) : null;
+    const rulesKey = this.rulesKey(rules);
+    if (sampleKey === this.latestSampleKey && rulesKey === this.latestRulesKey) {
+      return this.latestResult;
+    }
+    return this.observe(sample, rules);
   }
 
   /** 重置 block 累计状态（应用切换、冲突、探针缺失时调用） */
   resetBlockAccumulation(): void {
-    this.blockAccumulatedSeconds = 0;
-    this.lastBlockedProcessName = null;
+    this.blockStartedAtMs = null;
+    this.lastBlockSampleAtMs = null;
+    this.blockIdentity = null;
+  }
+
+  reset(): void {
+    this.resetBlockAccumulation();
+    this.latestSampleKey = null;
+    this.latestRulesKey = null;
+    this.latestResult = { verdict: "unknown", reason: "probe_unavailable" };
+  }
+
+  private remember(
+    sample: ForegroundSample | null,
+    rules: AppRule[],
+    result: ClassificationResult,
+  ): ClassificationResult {
+    this.latestSampleKey = sample ? this.sampleKey(sample) : null;
+    this.latestRulesKey = this.rulesKey(rules);
+    this.latestResult = result;
+    return result;
+  }
+
+  private sampleKey(sample: ForegroundSample): string {
+    return `${sample.capturedAt}|${sample.pid}|${sample.processName}|${sample.windowTitle}`;
+  }
+
+  private rulesKey(rules: AppRule[]): string {
+    return rules
+      .map((rule) => `${rule.id}:${rule.enabled}:${rule.decision}:${rule.matchType}:${rule.pattern}`)
+      .sort()
+      .join("|");
   }
 }

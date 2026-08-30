@@ -79,11 +79,12 @@ export function RulesView({ error, rules, onBack, onDelete, onSave, onToggle }: 
         timeoutMs: visionSettings.timeoutMs,
       });
       setVisionSettings(updated);
-      setApiKeyInput("");
       setTestResult({ ok: true, message: "设置已安全保存" });
     } catch {
       setTestResult({ ok: false, message: "保存失败" });
     } finally {
+      // 密钥无论保存成功与否都不继续留在 renderer 状态中。
+      setApiKeyInput("");
       setIsSavingVision(false);
     }
   };
@@ -92,7 +93,11 @@ export function RulesView({ error, rules, onBack, onDelete, onSave, onToggle }: 
     const api = window.studyPartner;
     if (!api) return;
     const updated = await api.saveVisionSettings({
-      ...visionSettings,
+      baseUrl: visionSettings.baseUrl,
+      model: visionSettings.model,
+      sendWindowTitle: visionSettings.sendWindowTitle,
+      visionEnabled: visionSettings.visionEnabled,
+      timeoutMs: visionSettings.timeoutMs,
       clearApiKey: true,
     });
     setVisionSettings(updated);
@@ -283,7 +288,7 @@ export function RulesView({ error, rules, onBack, onDelete, onSave, onToggle }: 
               <p><strong>当前模型：</strong> {visionSettings.model || "未设置"}</p>
               <p><strong>超时控制：</strong> {visionSettings.timeoutMs / 1000} 秒超时保护</p>
               <p style={{ marginTop: "12px", color: "var(--color-text-secondary, #94a3b8)", fontSize: "13px" }}>
-                在开启新学习会话时，勾选“巡查屏幕”与“启用多模态 AI”即可激活此能力。
+                开启新学习会话时，先选择巡查屏幕，再勾选“启用多模态 AI 巡查辅助”即可激活此能力。
               </p>
             </div>
           </section>

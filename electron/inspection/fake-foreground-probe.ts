@@ -65,6 +65,7 @@ export class FakeForegroundProbe implements ForegroundProbe {
       this.timer = null;
     }
     this.sampleListeners = [];
+    this.latest = null;
     this.setStatus("stopped");
   }
 
@@ -113,9 +114,10 @@ export function createSample(
   processName: string,
   windowTitle = "",
   pid = 1234,
+  capturedAt = new Date().toISOString(),
 ): ForegroundSample {
   return {
-    capturedAt: new Date().toISOString(),
+    capturedAt,
     processName,
     windowTitle,
     pid,

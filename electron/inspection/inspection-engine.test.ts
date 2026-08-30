@@ -31,6 +31,7 @@ describe("InspectionEngine", () => {
   let captureService: FakeCaptureService;
   let visionAdapter: FakeVisionAdapter;
   let confirmedDeviations: string[];
+  let resolvedPending: string[];
   let observations: { result: InspectionResult; confirmed: boolean }[];
 
   const dummyRules: AppRule[] = [
@@ -58,6 +59,7 @@ describe("InspectionEngine", () => {
     captureService = new FakeCaptureService();
     visionAdapter = new FakeVisionAdapter();
     confirmedDeviations = [];
+    resolvedPending = [];
     observations = [];
   });
 
@@ -74,6 +76,7 @@ describe("InspectionEngine", () => {
       visionAdapter,
       confirmationDelayMs: 30, // 测试使用 30ms 加速时钟
       onConfirmDeviation: (id) => confirmedDeviations.push(id),
+      onResolvePending: (id) => resolvedPending.push(id),
       onObservation: (result, confirmed) => observations.push({ result, confirmed }),
       ...overrides,
     });
@@ -95,16 +98,22 @@ describe("InspectionEngine", () => {
 
   it("前台命中 block 规则累计满 20 秒：直接确认 distracted 并触发偏航扣减", async () => {
     const engine = createEngine();
-    probe.pushSample(createSample("game", "Genshin Impact"));
+    const baseTime = Date.parse("2026-08-29T08:00:00.000Z");
+    const blockedSample = (seconds: number) => createSample(
+      "game",
+      "Entertainment Game",
+      1234,
+      new Date(baseTime + seconds * 1000).toISOString(),
+    );
 
-    // 每次 5 秒，前 3 次（15 秒）不足 20 秒
-    for (let i = 0; i < 3; i++) {
-      const res = await engine.inspectOnce();
-      expect(res.label).toBe("uncertain"); // 本地不足 20 秒且未开启 AI 判定时降级
-      expect(confirmedDeviations).toHaveLength(0);
+    // 真实探针每 5 秒推送一次样本；随机巡查调用本身不累计时间。
+    for (const seconds of [0, 5, 10, 15]) {
+      probe.pushSample(blockedSample(seconds));
     }
+    expect((await engine.inspectOnce()).label).toBe("uncertain");
+    expect(confirmedDeviations).toHaveLength(0);
 
-    // 第 4 次（累加满 20 秒）
+    probe.pushSample(blockedSample(20));
     const finalRes = await engine.inspectOnce();
     expect(finalRes.label).toBe("distracted");
     expect(finalRes.source).toBe("local-rule");
@@ -225,6 +234,11 @@ describe("InspectionEngine", () => {
 
     // 用户在等待期间切换回了 VS Code
     probe.pushSample(createSample("code", "study.ts"));
+    expect(engine.hasPendingConfirmation()).toBe(false);
+    expect(resolvedPending).toEqual(["session-test-1"]);
+
+    // 即使随后又回到原应用，已经撤销的确认事务也不能复活。
+    probe.pushSample(createSample("bilibili", "Video Player"));
 
     await new Promise((r) => setTimeout(r, 45));
 
@@ -277,6 +291,36 @@ describe("InspectionEngine", () => {
     await new Promise((r) => setTimeout(r, 45));
 
     expect(confirmedDeviations).toHaveLength(0); // 绝不扣偏航
+  });
+
+  it("第二次 AI 请求飞行期间停止共享：迟到 distracted 结果失效", async () => {
+    const engine = createEngine({ confirmationDelayMs: 10 });
+    await captureService.startCapture("screen:0:0");
+    captureService.setMockFrame(new Uint8Array([0xff, 0xd8, 0xff, 0xd9]));
+    probe.pushSample(createSample("video-player", "Entertainment Feed"));
+    visionAdapter.enqueueResponse({
+      label: "distracted",
+      confidence: 0.9,
+      reasonCode: "entertainment_content",
+    });
+    visionAdapter.enqueueResponse({
+      label: "distracted",
+      confidence: 0.95,
+      reasonCode: "entertainment_content",
+    });
+
+    await engine.inspectOnce();
+    visionAdapter.setDelay(45);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(visionAdapter.callCount).toBe(2);
+
+    await captureService.stopCapture();
+    engine.cancelPendingConfirmation(true);
+    await new Promise((resolve) => setTimeout(resolve, 55));
+
+    expect(confirmedDeviations).toHaveLength(0);
+    expect(resolvedPending).toEqual(["session-test-1"]);
+    expect(observations.at(-1)?.result.label).toBe("uncertain");
   });
 
   it("AI 调用异常 (超时/500)：安全降级为 uncertain (api_unavailable)，不扣偏航", async () => {

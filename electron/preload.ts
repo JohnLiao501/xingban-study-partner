@@ -15,20 +15,23 @@ import type {
 } from "../shared/session.js";
 import type { AppRule, SaveAppRuleInput } from "../shared/rules.js";
 
-const api: StudyPartnerApi = {
+type MainStudyPartnerApi = Omit<StudyPartnerApi,
+  | "onOverlayPreview"
+  | "onCaptureInitStream"
+  | "onCaptureRequestFrame"
+  | "onCaptureStopStream"
+  | "sendCaptureFrame"
+  | "notifyCaptureStreamReady"
+  | "notifyCaptureStreamEnded"
+>;
+
+const mainApi: MainStudyPartnerApi = {
   getBootstrapData: () => ipcRenderer.invoke("app:get-bootstrap") as Promise<BootstrapData>,
   importPartnerDirectory: () => ipcRenderer.invoke("partner:import-directory") as Promise<ImportResult>,
   listInstalledPartners: () => ipcRenderer.invoke("partner:list") as Promise<any>,
   selectPartner: (partnerId: string) => ipcRenderer.invoke("partner:select", partnerId) as Promise<BootstrapData>,
   showOverlayPreview: (payload) => ipcRenderer.invoke("overlay:show-preview", payload) as Promise<void>,
   hideOverlay: () => ipcRenderer.invoke("overlay:hide") as Promise<void>,
-  onOverlayPreview: (listener) => {
-    const handler = (_event: Electron.IpcRendererEvent, payload: OverlayPreviewPayload) => {
-      listener(payload);
-    };
-    ipcRenderer.on("overlay:preview", handler);
-    return () => ipcRenderer.removeListener("overlay:preview", handler);
-  },
   getActiveSession: () => ipcRenderer.invoke("session:get-active") as Promise<SessionSnapshot | null>,
   startSession: (input: StartSessionInput) => ipcRenderer.invoke("session:start", input) as Promise<SessionSnapshot>,
   pauseSession: (sessionId: string) => ipcRenderer.invoke("session:pause", sessionId) as Promise<SessionSnapshot>,
@@ -53,29 +56,6 @@ const api: StudyPartnerApi = {
     ipcRenderer.on("capture:status-changed", handler);
     return () => ipcRenderer.removeListener("capture:status-changed", handler);
   },
-  onCaptureInitStream: (listener) => {
-    const handler = (_event: Electron.IpcRendererEvent, payload: { sourceId: string }) => {
-      listener(payload);
-    };
-    ipcRenderer.on("capture:init-stream", handler);
-    return () => ipcRenderer.removeListener("capture:init-stream", handler);
-  },
-  onCaptureRequestFrame: (listener) => {
-    const handler = () => {
-      listener();
-    };
-    ipcRenderer.on("capture:request-frame", handler);
-    return () => ipcRenderer.removeListener("capture:request-frame", handler);
-  },
-  onCaptureStopStream: (listener) => {
-    const handler = () => {
-      listener();
-    };
-    ipcRenderer.on("capture:stop-stream", handler);
-    return () => ipcRenderer.removeListener("capture:stop-stream", handler);
-  },
-  sendCaptureFrame: (frameData) => ipcRenderer.invoke("capture:send-frame", frameData) as Promise<void>,
-  notifyCaptureStreamEnded: () => ipcRenderer.invoke("capture:stream-ended") as Promise<void>,
   getVisionSettings: () => ipcRenderer.invoke("settings:get-vision") as Promise<any>,
   saveVisionSettings: (input) => ipcRenderer.invoke("settings:save-vision", input) as Promise<any>,
   testVisionConnection: () => ipcRenderer.invoke("settings:test-connection") as Promise<any>,
@@ -92,4 +72,41 @@ const api: StudyPartnerApi = {
   closeWindow: () => ipcRenderer.invoke("window:close") as Promise<void>,
 };
 
-contextBridge.exposeInMainWorld("studyPartner", api);
+const overlayApi = {
+  onOverlayPreview: (listener: (payload: OverlayPreviewPayload) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: OverlayPreviewPayload) => {
+      listener(payload);
+    };
+    ipcRenderer.on("overlay:preview", handler);
+    return () => ipcRenderer.removeListener("overlay:preview", handler);
+  },
+};
+
+const captureApi = {
+  onCaptureInitStream: (listener: () => void) => {
+    const handler = () => listener();
+    ipcRenderer.on("capture:init-stream", handler);
+    return () => ipcRenderer.removeListener("capture:init-stream", handler);
+  },
+  onCaptureRequestFrame: (listener: () => void) => {
+    const handler = () => listener();
+    ipcRenderer.on("capture:request-frame", handler);
+    return () => ipcRenderer.removeListener("capture:request-frame", handler);
+  },
+  onCaptureStopStream: (listener: () => void) => {
+    const handler = () => listener();
+    ipcRenderer.on("capture:stop-stream", handler);
+    return () => ipcRenderer.removeListener("capture:stop-stream", handler);
+  },
+  sendCaptureFrame: (frameData: Uint8Array | null) =>
+    ipcRenderer.invoke("capture:send-frame", frameData) as Promise<void>,
+  notifyCaptureStreamReady: () => ipcRenderer.invoke("capture:stream-ready") as Promise<void>,
+  notifyCaptureStreamEnded: () => ipcRenderer.invoke("capture:stream-ended") as Promise<void>,
+};
+
+const viewArgument = process.argv.find((argument) => argument.startsWith("--xingban-view="));
+const view = viewArgument?.slice("--xingban-view=".length);
+contextBridge.exposeInMainWorld(
+  "studyPartner",
+  view === "capture" ? captureApi : view === "overlay" ? overlayApi : mainApi,
+);

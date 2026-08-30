@@ -14,6 +14,7 @@ import type {
   VisionAnalysisResponse,
 } from "./vision-adapter.js";
 import { validateVisionResponse } from "../../shared/inspection.js";
+import { validateVisionBaseUrl } from "../../shared/validation.js";
 
 export interface OpenAiVisionConfig {
   baseUrl: string;
@@ -41,6 +42,53 @@ const SYSTEM_PROMPT = `你是一个本地 AI 伴学督学判定助手。
 4. 画面模糊、处于桌面、锁屏或信息不足以断定 -> "uncertain", "insufficient_evidence"
 5. 若判定为 distracted，只有当你极其确定时才给出 >= 0.80 的置信度。若不能完全确定，置信度应低于 0.80 或直接给出 uncertain。`;
 
+const MAX_RESPONSE_BYTES = 64 * 1024;
+const MAX_MODEL_CONTENT_LENGTH = 4_096;
+
+function buildChatCompletionsEndpoint(baseUrl: string): string {
+  const parsed = new URL(validateVisionBaseUrl(baseUrl));
+  const pathname = parsed.pathname.replace(/\/+$/, "");
+  parsed.pathname = pathname.endsWith("/chat/completions")
+    ? pathname
+    : `${pathname}/chat/completions`;
+  return parsed.toString();
+}
+
+async function readLimitedResponseText(response: Response): Promise<string> {
+  const declaredLength = Number(response.headers.get("content-length") ?? "0");
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_RESPONSE_BYTES) {
+    throw new Error("VISION_RESPONSE_TOO_LARGE");
+  }
+  if (!response.body) {
+    const text = await response.text();
+    if (Buffer.byteLength(text, "utf8") > MAX_RESPONSE_BYTES) {
+      throw new Error("VISION_RESPONSE_TOO_LARGE");
+    }
+    return text;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let totalBytes = 0;
+  let text = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.byteLength;
+      if (totalBytes > MAX_RESPONSE_BYTES) {
+        await reader.cancel();
+        throw new Error("VISION_RESPONSE_TOO_LARGE");
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    text += decoder.decode();
+    return text;
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 export class OpenAiVisionAdapter implements VisionAdapter {
   private baseUrl: string;
   private model: string;
@@ -48,14 +96,14 @@ export class OpenAiVisionAdapter implements VisionAdapter {
   private readonly getApiKey: () => string | null;
 
   constructor(config: OpenAiVisionConfig) {
-    this.baseUrl = config.baseUrl.trim();
+    this.baseUrl = validateVisionBaseUrl(config.baseUrl);
     this.model = config.model.trim();
     this.timeoutMs = config.timeoutMs ?? 10000;
     this.getApiKey = config.getApiKey;
   }
 
   updateConfig(config: Partial<Omit<OpenAiVisionConfig, "getApiKey">>): void {
-    if (config.baseUrl !== undefined) this.baseUrl = config.baseUrl.trim();
+    if (config.baseUrl !== undefined) this.baseUrl = validateVisionBaseUrl(config.baseUrl);
     if (config.model !== undefined) this.model = config.model.trim();
     if (config.timeoutMs !== undefined) this.timeoutMs = config.timeoutMs;
   }
@@ -75,14 +123,10 @@ export class OpenAiVisionAdapter implements VisionAdapter {
       throw new Error("VISION_CONFIG_INCOMPLETE");
     }
 
-    // 格式化 API Endpoint
-    const cleanBase = this.baseUrl.replace(/\/+$/, "");
-    const endpoint = cleanBase.endsWith("/chat/completions")
-      ? cleanBase
-      : `${cleanBase}/chat/completions`;
+    const endpoint = buildChatCompletionsEndpoint(this.baseUrl);
 
     // 将二进制 JPEG 转为 Base64（仅在构造局部请求体时保留引用）
-    const base64Image = Buffer.from(request.imageJpeg).toString("base64");
+    let base64Image = Buffer.from(request.imageJpeg).toString("base64");
 
     const userTextParts = [
       `【用户专注目标】: ${request.goal}`,
@@ -112,6 +156,7 @@ export class OpenAiVisionAdapter implements VisionAdapter {
       max_tokens: 250,
       temperature: 0.1,
     };
+    let requestBody = JSON.stringify(payload);
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
@@ -123,15 +168,17 @@ export class OpenAiVisionAdapter implements VisionAdapter {
           "Content-Type": "application/json",
           Authorization: `Bearer ${apiKey}`,
         },
-        body: JSON.stringify(payload),
+        body: requestBody,
         signal: controller.signal,
+        redirect: "manual",
       });
 
       if (!response.ok) {
         throw new Error(`VISION_HTTP_ERROR_${response.status}`);
       }
 
-      const data = (await response.json()) as {
+      const responseText = await readLimitedResponseText(response);
+      const data = JSON.parse(responseText) as {
         choices?: Array<{ message?: { content?: string } }>;
       };
 
@@ -139,10 +186,11 @@ export class OpenAiVisionAdapter implements VisionAdapter {
       if (!rawContent || typeof rawContent !== "string") {
         throw new Error("VISION_EMPTY_CONTENT");
       }
+      if (rawContent.length > MAX_MODEL_CONTENT_LENGTH) {
+        throw new Error("VISION_MODEL_CONTENT_TOO_LARGE");
+      }
 
-      // 提取 JSON（去除可能的 markdown ```json 代码块）
-      const cleaned = this.extractJson(rawContent);
-      const parsed = JSON.parse(cleaned);
+      const parsed = JSON.parse(rawContent);
 
       return validateVisionResponse(parsed);
     } catch (err: unknown) {
@@ -152,6 +200,8 @@ export class OpenAiVisionAdapter implements VisionAdapter {
       throw err;
     } finally {
       clearTimeout(timer);
+      base64Image = "";
+      requestBody = "";
     }
   }
 
@@ -165,10 +215,7 @@ export class OpenAiVisionAdapter implements VisionAdapter {
       return { ok: false, message: "API 地址或模型名称未配置" };
     }
 
-    const cleanBase = this.baseUrl.replace(/\/+$/, "");
-    const endpoint = cleanBase.endsWith("/chat/completions")
-      ? cleanBase
-      : `${cleanBase}/chat/completions`;
+    const endpoint = buildChatCompletionsEndpoint(this.baseUrl);
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8000);
@@ -186,10 +233,11 @@ export class OpenAiVisionAdapter implements VisionAdapter {
           max_tokens: 10,
         }),
         signal: controller.signal,
+        redirect: "manual",
       });
 
       if (!response.ok) {
-        return { ok: false, message: `HTTP ${response.status}: ${response.statusText}` };
+        return { ok: false, message: `HTTP ${response.status}` };
       }
 
       return { ok: true, message: "连接成功" };
@@ -203,13 +251,4 @@ export class OpenAiVisionAdapter implements VisionAdapter {
     }
   }
 
-  private extractJson(text: string): string {
-    const trimmed = text.trim();
-    // 如果包含 ```json ... ``` 代码块，提取其中的内容
-    const match = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-    if (match?.[1]) {
-      return match[1].trim();
-    }
-    return trimmed;
-  }
 }

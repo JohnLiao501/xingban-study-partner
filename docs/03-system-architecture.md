@@ -30,7 +30,9 @@
 
 ### 2.4 隐藏截图工作窗
 
-拥有 `getDisplayMedia` 产生的屏幕流，设置 `backgroundThrottling: false`。巡查时把当前帧绘制到 `OffscreenCanvas`，缩放后以可转移缓冲区交给主进程，随即清空画布和缓冲区引用。
+拥有 `getDisplayMedia` 产生的屏幕流，设置 `backgroundThrottling: false`。用户必须先在主窗口明确选择一个显示器；主进程的一次性授权与专用截图 `webContents`、所选 source ID 绑定，并由 display-media handler 强制选源。巡查时把当前帧绘制到临时 `HTMLCanvasElement`，缩放、编码为 JPEG 后以 `Uint8Array` 通过专用 IPC 交给主进程，随后覆写可释放缓冲并把画布尺寸归零。
+
+三个 renderer 的 preload 能力分离：主窗口只能使用产品与设置 API，悬浮窗只能接收预览事件，截图工作窗只能管理媒体流和单帧。主进程对每个 IPC 再校验发送方窗口；renderer 不能仅凭频道名调用其他窗口的能力。
 
 ### 2.5 Windows 前台探针
 
@@ -58,17 +60,19 @@ Main Process
 
 1. `ForegroundProbe` 提供当前进程和标题。
 2. `LocalRuleClassifier` 返回明确结果或未知。
-3. 未知且会话已授权时，`SessionEngine` 请求截图工作窗产生一张最长边 768 px 的 JPEG。
+3. 未知且本场已选屏、AI 已开启且密钥可用时，`InspectionEngine` 请求截图工作窗产生一张最长边 768 px、质量 60 的 JPEG。
 4. 主进程调用 `VisionClassifierAdapter`；API 密钥只在主进程解密。
 5. 响应经严格 JSON 校验后交给确认策略。
 6. 原始图像缓冲被覆盖或释放，仅结构化 `Observation` 写入 SQLite。
 7. `WindowCoordinator` 根据动作键请求巡查窗播放伙伴资源。
 
-## 5. 伙伴包安装
+## 5. 伙伴包目录安装
 
 安装顺序固定为：
 
-1. 将压缩包复制到随机临时目录，不在原位置执行或打开媒体。
+当前阶段只支持用户通过系统选择器导入一个伙伴包目录，不支持 ZIP。安装顺序固定为：
+
+1. 先在原目录执行只读校验，不执行其中任何内容。
 2. 拒绝绝对路径、盘符、`..`、符号链接、脚本与可执行扩展名。
 3. 按 JSON Schema 校验清单，再执行跨字段和媒体探测校验。
 4. 校验每个 `files` 条目的大小与 SHA-256，并确认所有媒体均在文件清单中。
@@ -87,5 +91,6 @@ Main Process
 
 - CSP 禁止远程脚本、`eval` 和非白名单网络目的地。
 - 兼容 API 的 `baseUrl` 只能由设置页保存，伙伴包不能修改。
+- 默认拒绝媒体权限；普通 `media`（摄像头/麦克风）始终拒绝，只有专用截图窗口在有效一次性授权下可请求 `display-capture`。
 - 日志对目标、标题、路径和响应内容做脱敏。
 - 伙伴包是纯数据，不提供插件钩子、HTML、CSS 或 JavaScript。

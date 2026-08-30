@@ -4,9 +4,11 @@
  * 彻底收紧 Electron 媒体与系统权限：
  * - 默认拒绝所有权限请求；
  * - 摄像头 (camera/video-capture)、麦克风 (microphone/audio-capture) 始终无条件拒绝；
- * - 仅在一次性授权 token 存在且未过期时，对专用隐藏截图窗口放行单次显示捕获。
- * - 授权 token 使用一次即作废，超时自动失效。
+ * - 仅在一次性授权 token 存在且未过期时，对专用隐藏截图窗口放行显示捕获检查；
+ * - 真正的授权只由主进程 display-media handler 消费，并强制绑定已选择的 sourceId。
  */
+
+import { randomUUID } from "node:crypto";
 
 export interface PermissionManagerOptions {
   /** 一次性授权有效期（毫秒），默认 10000ms */
@@ -42,7 +44,7 @@ export class PermissionManager {
   /** 生成一次性屏幕捕获授权上下文 */
   issueCaptureAuth(sourceId: string): CaptureAuthContext {
     const now = Date.now();
-    const token = `auth-${Math.random().toString(36).slice(2)}-${now}`;
+    const token = randomUUID();
     const context: CaptureAuthContext = {
       token,
       sourceId,
@@ -69,6 +71,20 @@ export class PermissionManager {
   }
 
   /**
+   * 由主进程 display-media handler 消费一次性授权。
+   * 只有专用截图窗口可以取得上下文，读取后立即作废。
+   */
+  consumeCaptureAuth(requesterWebContentsId: number): CaptureAuthContext | null {
+    if (this.captureWebContentsId === null || requesterWebContentsId !== this.captureWebContentsId) {
+      return null;
+    }
+    if (!this.hasActiveCaptureAuth()) return null;
+    const context = this.activeAuthContext;
+    this.activeAuthContext = null;
+    return context;
+  }
+
+  /**
    * 判定权限请求是否允许（纯函数逻辑，供 Electron permissionRequestHandler 调用）
    *
    * @param requesterWebContentsId 发起请求的 webContents id
@@ -84,6 +100,7 @@ export class PermissionManager {
     if (
       permission === "camera" ||
       permission === "microphone" ||
+      permission === "media" ||
       permission === "clipboard-read" ||
       permission === "notifications" ||
       permission === "geolocation"
@@ -103,22 +120,18 @@ export class PermissionManager {
       return false;
     }
 
-    // 仅针对 display-capture 或 media (screen capture)
-    const isDisplayCapture =
-      permission === "display-capture" ||
-      permission === "media";
+    // Electron 44 的显示捕获使用独立 display-capture 权限；普通 media
+    // 可能代表摄像头或麦克风，已在上方无条件拒绝。
+    const isDisplayCapture = permission === "display-capture";
 
     if (!isDisplayCapture) {
       return false;
     }
 
-    // 检查并消耗一次性 token
+    // 权限检查阶段不消费 token；实际 source 选择由 display-media handler 完成。
     if (!this.hasActiveCaptureAuth()) {
       return false;
     }
-
-    // 放行本次捕获请求，并将一次性授权即刻作废，防止后续复用
-    this.activeAuthContext = null;
     return true;
   }
 }

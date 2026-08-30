@@ -38,9 +38,6 @@ export function SessionSetupDialog({
     // 获取可用屏幕列表
     void api.listCaptureSources().then((list) => {
       setSources(list);
-      if (list.length > 0 && list[0]) {
-        setSelectedSourceId(list[0].id);
-      }
     }).catch(() => {});
 
     // 获取视觉设置（确认密钥是否配置）
@@ -84,14 +81,14 @@ export function SessionSetupDialog({
           <span>本次目标</span>
           <input
             autoFocus
-            maxLength={120}
+            maxLength={500}
             minLength={1}
             onChange={(event) => setGoal(event.target.value)}
             placeholder="例如：完成高数错题复盘"
             required
             value={goal}
           />
-          <small>{goal.length}/120</small>
+          <small>{goal.length}/500</small>
         </label>
 
         <label className="session-field">

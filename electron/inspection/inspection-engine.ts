@@ -19,7 +19,7 @@ import type {
 import type { ForegroundProbe } from "./foreground-probe.js";
 import type { LocalRuleClassifier } from "./local-rule-classifier.js";
 import type { CaptureService } from "../capture/capture-service.js";
-import type { VisionAdapter } from "../vision/vision-adapter.js";
+import type { VisionAdapter, VisionAnalysisResponse } from "../vision/vision-adapter.js";
 import { hashWindowTitle } from "./observation.js";
 
 export interface InspectionEngineOptions {
@@ -38,6 +38,8 @@ export interface InspectionEngineOptions {
   onConfirmDeviation: (sessionId: string) => void;
   /** 产生观察记录的回调 */
   onObservation: (result: InspectionResult, confirmedDeviation: boolean) => void;
+  /** 二次确认最终不是 distracted 时，将当前巡查安全结束为 uncertain。 */
+  onResolvePending?: (sessionId: string, label: "uncertain") => void;
 }
 
 export class InspectionEngine {
@@ -54,12 +56,16 @@ export class InspectionEngine {
   private readonly confirmationDelayMs: number;
   private readonly onConfirmDeviation: (sessionId: string) => void;
   private readonly onObservation: (result: InspectionResult, confirmedDeviation: boolean) => void;
+  private readonly onResolvePending: (sessionId: string, label: "uncertain") => void;
+  private readonly unsubscribeProbeStatus: () => void;
 
   /** 正在等待 15 秒二次确认的任务 */
   private pendingConfirmation: {
-    timer: ReturnType<typeof setTimeout>;
+    timer: ReturnType<typeof setTimeout> | null;
     initialProcessName: string;
+    epoch: number;
   } | null = null;
+  private confirmationEpoch = 0;
 
   constructor(options: InspectionEngineOptions) {
     this.sessionId = options.sessionId;
@@ -75,11 +81,37 @@ export class InspectionEngine {
     this.confirmationDelayMs = options.confirmationDelayMs ?? 15000;
     this.onConfirmDeviation = options.onConfirmDeviation;
     this.onObservation = options.onObservation;
+    this.onResolvePending = options.onResolvePending ?? (() => {});
+
+    this.unsubscribeProbeStatus = this.probe.onStatusChange((status) => {
+      if (status !== "running") {
+        this.classifier.observe(null, this.rules);
+      }
+      if ((status === "unavailable" || status === "restarting") && this.pendingConfirmation) {
+        this.cancelPendingConfirmation(true);
+      }
+    });
+    try {
+      this.probe.start((sample) => {
+        this.classifier.observe(sample, this.rules);
+        if (
+          this.pendingConfirmation &&
+          sample.processName !== this.pendingConfirmation.initialProcessName
+        ) {
+          this.cancelPendingConfirmation(true, "insufficient_evidence");
+        }
+      });
+    } catch {
+      this.classifier.observe(null, this.rules);
+    }
   }
 
   /** 更新本场启用的规则 */
   updateRules(rules: AppRule[]): void {
     this.rules = rules;
+    this.classifier.reset();
+    const sample = this.probe.getStatus() === "running" ? this.probe.getLatest() : null;
+    if (sample) this.classifier.observe(sample, this.rules);
   }
 
   /** 是否有待确认的二次判定任务 */
@@ -88,11 +120,16 @@ export class InspectionEngine {
   }
 
   /** 取消待确认的二次判定任务（应用切换、暂停、停止共享时调用） */
-  cancelPendingConfirmation(): void {
-    if (this.pendingConfirmation) {
-      clearTimeout(this.pendingConfirmation.timer);
-      this.pendingConfirmation = null;
-    }
+  cancelPendingConfirmation(
+    resolveAsUncertain = false,
+    reasonCode: ObservationReasonCode = "capture_unavailable",
+  ): void {
+    const pending = this.pendingConfirmation;
+    if (!pending) return;
+    if (pending.timer) clearTimeout(pending.timer);
+    this.pendingConfirmation = null;
+    this.confirmationEpoch += 1;
+    if (resolveAsUncertain) this.emitPendingUncertain(reasonCode);
   }
 
   /**
@@ -100,13 +137,13 @@ export class InspectionEngine {
    */
   async inspectOnce(): Promise<InspectionResult> {
     const startTime = Date.now();
-    const sample = this.probe.getLatest();
+    const sample = this.probe.getStatus() === "running" ? this.probe.getLatest() : null;
 
     const appName = sample?.processName ? sample.processName : null;
     const windowTitleHash = hashWindowTitle(sample?.windowTitle);
 
     // 1. 本地规则优先判定
-    const localVerdict = this.classifier.classify(sample, this.rules);
+    const localVerdict = this.classifier.getCurrent(sample, this.rules);
 
     if (localVerdict.verdict === "focused") {
       // 本地命中白名单：绝不截图、绝不调用 AI
@@ -182,92 +219,101 @@ export class InspectionEngine {
     }
 
     // 4. 调用多模态判定适配器
+    let visionResult: VisionAnalysisResponse;
     try {
-      const visionResult = await this.visionAdapter.analyze({
+      visionResult = await this.visionAdapter.analyze({
         goal: this.goal,
         processName: sample.processName,
         windowTitle: this.sendWindowTitle ? sample.windowTitle : undefined,
         imageJpeg: frameData,
       });
-
-      // 4.1 AI 判定为 focused
-      if (visionResult.label === "focused" && visionResult.confidence >= 0.7) {
-        this.cancelPendingConfirmation();
-        const result: InspectionResult = {
-          label: "focused",
-          confidence: visionResult.confidence,
-          reasonCode: visionResult.reasonCode,
-          source: "vision-api",
-          appName,
-          windowTitleHash,
-          latencyMs: Date.now() - startTime,
-          errorCode: null,
-        };
-        this.onObservation(result, false);
-        return result;
-      }
-
-      // 4.2 AI 判定为 distracted
-      if (visionResult.label === "distracted" && visionResult.confidence >= 0.8) {
-        // 初次 AI distracted 绝不立即处罚！启动 15 秒二次独立确认
-        this.scheduleConfirmation(sample.processName);
-
-        // 当次返回温和的 uncertain 提醒，绝不消耗偏航额度
-        const nudgeResult: InspectionResult = {
-          label: "uncertain",
-          confidence: visionResult.confidence,
-          reasonCode: visionResult.reasonCode,
-          source: "vision-api",
-          appName,
-          windowTitleHash,
-          latencyMs: Date.now() - startTime,
-          errorCode: null,
-        };
-        this.onObservation(nudgeResult, false);
-        return nudgeResult;
-      }
-
-      // 4.3 其他置信度不足或 uncertain
-      return this.fallbackUncertain(
-        startTime,
-        visionResult.reasonCode ?? "insufficient_evidence",
-        appName,
-        windowTitleHash,
-        visionResult.confidence,
-      );
     } catch {
       // API 超时、429、500 等全部安全降级
       return this.fallbackUncertain(startTime, "api_unavailable", appName, windowTitleHash);
+    } finally {
+      frameData?.fill(0);
+      frameData = null;
     }
+
+    // 4.1 AI 判定为 focused
+    if (visionResult.label === "focused" && visionResult.confidence >= 0.7) {
+      this.cancelPendingConfirmation();
+      const result: InspectionResult = {
+        label: "focused",
+        confidence: visionResult.confidence,
+        reasonCode: visionResult.reasonCode,
+        source: "vision-api",
+        appName,
+        windowTitleHash,
+        latencyMs: Date.now() - startTime,
+        errorCode: null,
+      };
+      this.onObservation(result, false);
+      return result;
+    }
+
+    // 4.2 AI 判定为 distracted
+    if (visionResult.label === "distracted" && visionResult.confidence >= 0.8) {
+      // 初次 AI distracted 绝不立即处罚！启动 15 秒二次独立确认
+      this.scheduleConfirmation(sample.processName);
+
+      // 当次只产生温和提醒；主进程保持 patrolling，等待二次确认。
+      const nudgeResult: InspectionResult = {
+        label: "uncertain",
+        confidence: visionResult.confidence,
+        reasonCode: visionResult.reasonCode,
+        source: "vision-api",
+        appName,
+        windowTitleHash,
+        latencyMs: Date.now() - startTime,
+        errorCode: null,
+      };
+      this.onObservation(nudgeResult, false);
+      return nudgeResult;
+    }
+
+    // 4.3 其他置信度不足或 uncertain
+    return this.fallbackUncertain(
+      startTime,
+      visionResult.reasonCode ?? "insufficient_evidence",
+      appName,
+      windowTitleHash,
+      visionResult.confidence,
+    );
   }
 
   /** 调度 15 秒后的第二次单帧独立确认 */
   private scheduleConfirmation(initialProcessName: string): void {
     this.cancelPendingConfirmation();
+    const epoch = ++this.confirmationEpoch;
 
     const timer = setTimeout(() => {
-      void this.executeSecondPass(initialProcessName);
+      void this.executeSecondPass(initialProcessName, epoch);
     }, this.confirmationDelayMs);
 
     this.pendingConfirmation = {
       timer,
       initialProcessName,
+      epoch,
     };
   }
 
   /** 执行第二次单帧独立确认 */
-  private async executeSecondPass(expectedProcessName: string): Promise<void> {
-    this.pendingConfirmation = null;
+  private async executeSecondPass(expectedProcessName: string, epoch: number): Promise<void> {
+    if (!this.isPendingEpoch(epoch)) return;
+    this.pendingConfirmation!.timer = null;
 
     // 1. 检查屏幕流是否仍处于活跃状态
     if (this.captureService.getStatus() !== "active") {
+      this.resolvePendingUncertain("capture_unavailable", epoch);
       return;
     }
 
     // 2. 检查前台应用是否切换
-    const currentSample = this.probe.getLatest();
+    const currentSample = this.probe.getStatus() === "running" ? this.probe.getLatest() : null;
     if (!currentSample || currentSample.processName !== expectedProcessName) {
       // 用户已切走，取消确认
+      this.resolvePendingUncertain("insufficient_evidence", epoch);
       return;
     }
 
@@ -283,49 +329,66 @@ export class InspectionEngine {
       secondFrame = null;
     }
 
+    if (!this.isPendingEpoch(epoch)) {
+      secondFrame?.fill(0);
+      return;
+    }
     if (!secondFrame) {
+      this.resolvePendingUncertain("capture_unavailable", epoch);
       return;
     }
 
     // 4. 第二次请求 AI
+    let secondResult: VisionAnalysisResponse;
     try {
-      const secondResult = await this.visionAdapter.analyze({
+      secondResult = await this.visionAdapter.analyze({
         goal: this.goal,
         processName: currentSample.processName,
         windowTitle: this.sendWindowTitle ? currentSample.windowTitle : undefined,
         imageJpeg: secondFrame,
       });
-
-      // 5. 两次同类结果均 >= 0.80 时，正式确认偏航
-      if (secondResult.label === "distracted" && secondResult.confidence >= 0.8) {
-        this.onConfirmDeviation(this.sessionId);
-        const finalDistracted: InspectionResult = {
-          label: "distracted",
-          confidence: secondResult.confidence,
-          reasonCode: secondResult.reasonCode,
-          source: "vision-api",
-          appName,
-          windowTitleHash,
-          latencyMs: Date.now() - startTime,
-          errorCode: null,
-        };
-        this.onObservation(finalDistracted, true);
-      } else {
-        // 两次结果矛盾或未达阈值，按 uncertain 记录，不扣偏航
-        const uncertainResult: InspectionResult = {
-          label: "uncertain",
-          confidence: secondResult.confidence,
-          reasonCode: secondResult.reasonCode,
-          source: "vision-api",
-          appName,
-          windowTitleHash,
-          latencyMs: Date.now() - startTime,
-          errorCode: null,
-        };
-        this.onObservation(uncertainResult, false);
-      }
     } catch {
       // 第二次失败不处罚
+      this.resolvePendingUncertain("api_unavailable", epoch);
+      return;
+    } finally {
+      secondFrame?.fill(0);
+      secondFrame = null;
+    }
+
+    // 停止共享、暂停或销毁可能发生在网络请求飞行期间；迟到结果必须失效。
+    if (!this.isPendingEpoch(epoch)) return;
+
+    // 5. 两次同类结果均 >= 0.80 时，正式确认偏航
+    if (secondResult.label === "distracted" && secondResult.confidence >= 0.8) {
+      this.completePendingEpoch(epoch);
+      this.onConfirmDeviation(this.sessionId);
+      const finalDistracted: InspectionResult = {
+        label: "distracted",
+        confidence: secondResult.confidence,
+        reasonCode: secondResult.reasonCode,
+        source: "vision-api",
+        appName,
+        windowTitleHash,
+        latencyMs: Date.now() - startTime,
+        errorCode: null,
+      };
+      this.onObservation(finalDistracted, true);
+    } else {
+      // 两次结果矛盾或未达阈值，按 uncertain 记录，不扣偏航
+      const uncertainResult: InspectionResult = {
+        label: "uncertain",
+        confidence: secondResult.confidence,
+        reasonCode: secondResult.reasonCode,
+        source: "vision-api",
+        appName,
+        windowTitleHash,
+        latencyMs: Date.now() - startTime,
+        errorCode: null,
+      };
+      this.onObservation(uncertainResult, false);
+      this.completePendingEpoch(epoch);
+      this.onResolvePending(this.sessionId, "uncertain");
     }
   }
 
@@ -350,8 +413,40 @@ export class InspectionEngine {
     return result;
   }
 
+  private isPendingEpoch(epoch: number): boolean {
+    return this.pendingConfirmation?.epoch === epoch && this.confirmationEpoch === epoch;
+  }
+
+  private completePendingEpoch(epoch: number): void {
+    if (!this.isPendingEpoch(epoch)) return;
+    const timer = this.pendingConfirmation?.timer;
+    if (timer) clearTimeout(timer);
+    this.pendingConfirmation = null;
+    this.confirmationEpoch += 1;
+  }
+
+  private resolvePendingUncertain(reasonCode: ObservationReasonCode, epoch: number): void {
+    if (!this.isPendingEpoch(epoch)) return;
+    this.completePendingEpoch(epoch);
+    this.emitPendingUncertain(reasonCode);
+  }
+
+  private emitPendingUncertain(reasonCode: ObservationReasonCode): void {
+    const sample = this.probe.getStatus() === "running" ? this.probe.getLatest() : null;
+    this.fallbackUncertain(
+      Date.now(),
+      reasonCode,
+      sample?.processName ?? null,
+      hashWindowTitle(sample?.windowTitle),
+    );
+    this.onResolvePending(this.sessionId, "uncertain");
+  }
+
   /** 销毁引擎，清理未决定时器 */
   dispose(): void {
     this.cancelPendingConfirmation();
+    this.unsubscribeProbeStatus();
+    this.probe.stop();
+    this.classifier.reset();
   }
 }

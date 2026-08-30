@@ -5,8 +5,8 @@
  * - 默认拒绝所有权限请求
  * - 摄像头、麦克风无条件拒绝
  * - 非 captureWebContents 拒绝
- * - 专用 captureWebContents 在单次有效授权下放行
- * - 授权 token 使用一次后立即作废（防重放）
+ * - 专用 captureWebContents 在单次有效授权下通过权限检查
+ * - 显示媒体 handler 消费授权后立即作废（防重放）
  * - 授权 token 超时失效
  * - 主动 revoke 立即失效
  */
@@ -28,6 +28,7 @@ describe("PermissionManager", () => {
 
     expect(pm.shouldAllowPermission(42, "camera")).toBe(false);
     expect(pm.shouldAllowPermission(42, "microphone")).toBe(false);
+    expect(pm.shouldAllowPermission(42, "media", { mediaTypes: ["video"] })).toBe(false);
     expect(pm.shouldAllowPermission(42, "media", { mediaTypes: ["audio"] })).toBe(false);
   });
 
@@ -40,18 +41,29 @@ describe("PermissionManager", () => {
     expect(pm.shouldAllowPermission(99, "media")).toBe(false);
   });
 
-  it("专用 captureWebContents 且有 token 时放行，放行后 token 立即作废", () => {
+  it("权限检查不消费 token；显示媒体 handler 消费后不可重放", () => {
     const pm = new PermissionManager();
     pm.setCaptureWebContentsId(42);
     pm.issueCaptureAuth("screen:0");
 
-    // 第一次请求：满足所有条件，放行
-    const allowed = pm.shouldAllowPermission(42, "media");
+    // 权限检查可能由 Chromium 调用多次，本阶段不消费 token。
+    const allowed = pm.shouldAllowPermission(42, "display-capture");
     expect(allowed).toBe(true);
+    expect(pm.shouldAllowPermission(42, "display-capture")).toBe(true);
 
-    // 立即发起第二次请求：token 已消耗，拒绝
-    const secondTry = pm.shouldAllowPermission(42, "media");
-    expect(secondTry).toBe(false);
+    const auth = pm.consumeCaptureAuth(42);
+    expect(auth?.sourceId).toBe("screen:0");
+    expect(pm.consumeCaptureAuth(42)).toBeNull();
+    expect(pm.shouldAllowPermission(42, "display-capture")).toBe(false);
+  });
+
+  it("非专用窗口无法消费授权", () => {
+    const pm = new PermissionManager();
+    pm.setCaptureWebContentsId(42);
+    pm.issueCaptureAuth("screen:0");
+
+    expect(pm.consumeCaptureAuth(99)).toBeNull();
+    expect(pm.hasActiveCaptureAuth()).toBe(true);
   });
 
   it("token 超时自动失效", async () => {

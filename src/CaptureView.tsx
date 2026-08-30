@@ -10,44 +10,59 @@ export function CaptureView() {
   useEffect(() => {
     const api = window.studyPartner;
     if (!api) return;
+    let streamGeneration = 0;
 
-    // 1. 监听初始化屏幕流请求
-    const unbindInit = api.onCaptureInitStream?.(async ({ sourceId }) => {
-      // 先清理旧流
+    const stopCurrentStream = () => {
       if (streamRef.current) {
-        for (const track of streamRef.current.getTracks()) {
-          track.stop();
-        }
+        for (const track of streamRef.current.getTracks()) track.stop();
         streamRef.current = null;
       }
+      if (videoRef.current) videoRef.current.srcObject = null;
+    };
+
+    // 1. 监听初始化屏幕流请求
+    const unbindInit = api.onCaptureInitStream?.(async () => {
+      const currentGeneration = ++streamGeneration;
+      stopCurrentStream();
 
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
+        const stream = await navigator.mediaDevices.getDisplayMedia({
           audio: false,
-          video: {
-            mandatory: {
-              chromeMediaSource: "desktop",
-              chromeMediaSourceId: sourceId,
-            },
-          } as unknown as MediaTrackConstraints,
+          video: true,
         });
 
-        streamRef.current = stream;
+        // 用户可能在系统选择器或异步授权期间已经停止、重选或结束会话。
+        if (currentGeneration !== streamGeneration) {
+          for (const track of stream.getTracks()) track.stop();
+          return;
+        }
 
         // 监听系统级流中断（如用户点击系统的停止共享按钮）
         const videoTrack = stream.getVideoTracks()[0];
-        if (videoTrack) {
-          videoTrack.onended = () => {
-            void api.notifyCaptureStreamEnded?.();
-          };
+        if (!videoTrack) {
+          for (const track of stream.getTracks()) track.stop();
+          throw new Error("CAPTURE_VIDEO_TRACK_MISSING");
         }
+        streamRef.current = stream;
+        videoTrack.onended = () => {
+          if (currentGeneration === streamGeneration) {
+            void api.notifyCaptureStreamEnded?.();
+          }
+        };
 
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
-          await videoRef.current.play().catch(() => {});
+          await videoRef.current.play();
         }
+        if (currentGeneration !== streamGeneration) {
+          for (const track of stream.getTracks()) track.stop();
+          return;
+        }
+        await api.notifyCaptureStreamReady?.();
       } catch {
-        void api.notifyCaptureStreamEnded?.();
+        if (currentGeneration === streamGeneration) {
+          void api.notifyCaptureStreamEnded?.();
+        }
       }
     });
 
@@ -55,10 +70,12 @@ export function CaptureView() {
     const unbindRequestFrame = api.onCaptureRequestFrame?.(async () => {
       const video = videoRef.current;
       if (!video || video.videoWidth === 0 || video.videoHeight === 0) {
-        void api.sendCaptureFrame?.(null);
+        await api.sendCaptureFrame?.(null);
         return;
       }
 
+      let canvas: HTMLCanvasElement | null = null;
+      let context: CanvasRenderingContext2D | null = null;
       try {
         const originalWidth = video.videoWidth;
         const originalHeight = video.videoHeight;
@@ -78,64 +95,60 @@ export function CaptureView() {
           }
         }
 
-        const canvas = document.createElement("canvas");
+        canvas = document.createElement("canvas");
         canvas.width = targetWidth;
         canvas.height = targetHeight;
-        const ctx = canvas.getContext("2d");
+        context = canvas.getContext("2d");
 
-        if (!ctx) {
-          void api.sendCaptureFrame?.(null);
+        if (!context) {
+          await api.sendCaptureFrame?.(null);
           return;
         }
 
-        ctx.drawImage(video, 0, 0, targetWidth, targetHeight);
+        context.drawImage(video, 0, 0, targetWidth, targetHeight);
 
         // 导出为 JPEG 0.60 格式单帧
+        const activeCanvas = canvas;
         const blob = await new Promise<Blob | null>((resolve) => {
-          canvas.toBlob((b) => resolve(b), "image/jpeg", JPEG_QUALITY);
+          activeCanvas.toBlob((b) => resolve(b), "image/jpeg", JPEG_QUALITY);
         });
 
         // 立即清空 canvas 画布内容与尺寸引用
-        ctx.clearRect(0, 0, targetWidth, targetHeight);
-        canvas.width = 0;
-        canvas.height = 0;
-
         if (!blob) {
-          void api.sendCaptureFrame?.(null);
+          await api.sendCaptureFrame?.(null);
           return;
         }
 
         const arrayBuffer = await blob.arrayBuffer();
         const uint8Array = new Uint8Array(arrayBuffer);
-        void api.sendCaptureFrame?.(uint8Array);
+        try {
+          await api.sendCaptureFrame?.(uint8Array);
+        } finally {
+          uint8Array.fill(0);
+        }
       } catch {
-        void api.sendCaptureFrame?.(null);
+        await api.sendCaptureFrame?.(null);
+      } finally {
+        if (canvas) {
+          context?.clearRect(0, 0, canvas.width, canvas.height);
+          canvas.width = 0;
+          canvas.height = 0;
+        }
       }
     });
 
     // 3. 监听停止捕获流
     const unbindStop = api.onCaptureStopStream?.(() => {
-      if (streamRef.current) {
-        for (const track of streamRef.current.getTracks()) {
-          track.stop();
-        }
-        streamRef.current = null;
-      }
-      if (videoRef.current) {
-        videoRef.current.srcObject = null;
-      }
+      streamGeneration += 1;
+      stopCurrentStream();
     });
 
     return () => {
       unbindInit?.();
       unbindRequestFrame?.();
       unbindStop?.();
-      if (streamRef.current) {
-        for (const track of streamRef.current.getTracks()) {
-          track.stop();
-        }
-        streamRef.current = null;
-      }
+      streamGeneration += 1;
+      stopCurrentStream();
     };
   }, []);
 

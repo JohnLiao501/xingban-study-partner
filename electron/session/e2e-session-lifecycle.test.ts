@@ -1,5 +1,7 @@
 /**
- * 阶段 3 端到端会话生命周期与巡查自动判定集成测试 (E2E Session Lifecycle)
+ * 阶段 3 加速会话生命周期与巡查自动判定集成测试
+ *
+ * 只使用 fake 系统能力，不替代真实 Electron / 屏幕捕获验收。
  *
  * 验证完整闭环链路 (S3-016, S3-017)：
  * 1. 密钥安全加密与配置持久化
@@ -58,7 +60,7 @@ describe("阶段 3 E2E 会话生命周期与自动巡查端到端验证", () => 
     });
     const ruleBlock = db.saveAppRule({
       matchType: "process",
-      pattern: "bilibili.exe",
+      pattern: "video-player.exe",
       decision: "block",
       enabled: true,
     });
@@ -93,7 +95,7 @@ describe("阶段 3 E2E 会话生命周期与自动巡查端到端验证", () => 
       visionAdapter,
       onConfirmDeviation: (id) => {
         if (sessionService.getActive()?.phase === "patrolling") {
-          sessionService.recordObservation(id, "distracted");
+          sessionService.applyInspectionResult(id, "distracted");
         }
       },
       onObservation: (result, confirmed) => {
@@ -121,7 +123,7 @@ describe("阶段 3 E2E 会话生命周期与自动巡查端到端验证", () => 
     expect(visionAdapter.callCount).toBe(0); // 绝对不调用 AI
 
     // 记录观察进入 feedback 阶段，然后完成反馈回到 focusing
-    sessionService.recordObservation(startSnapshot.sessionId, "focused");
+    sessionService.applyInspectionResult(startSnapshot.sessionId, "focused");
     sessionService.completeFeedback(startSnapshot.sessionId);
     expect(sessionService.getActive()?.phase).toBe("focusing");
 
@@ -146,25 +148,24 @@ describe("阶段 3 E2E 会话生命周期与自动巡查端到端验证", () => 
     expect(captureService.captureCallCount).toBe(1); // 捕获了 1 帧
     expect(visionAdapter.callCount).toBe(1); // 调用了 1 次 AI
 
-    sessionService.recordObservation(startSnapshot.sessionId, "focused");
+    sessionService.applyInspectionResult(startSnapshot.sessionId, "focused");
     sessionService.completeFeedback(startSnapshot.sessionId);
     expect(sessionService.getActive()?.phase).toBe("focusing");
 
-    // 7. 场景 C: 前台切换为黑名单应用持续满 20 秒 (4 次 5 秒采样) -> 本地黑名单确认偏航并扣除额度
-    for (let i = 0; i < 3; i++) {
+    // 7. 场景 C: 前台切换为黑名单应用，真实 0/5/10/15/20 秒采样确认偏航。
+    for (const seconds of [0, 5, 10, 15]) {
       probe.pushSample({
-        processName: "bilibili",
-        windowTitle: "哔哩哔哩 - 热门视频",
+        processName: "video-player",
+        windowTitle: "Entertainment Feed",
         pid: 3003,
-        capturedAt: `2026-08-29T10:10:0${i * 5}.000Z`,
+        capturedAt: new Date(Date.parse("2026-08-29T10:10:00.000Z") + seconds * 1000).toISOString(),
       });
-      await engine.inspectOnce();
     }
 
-    // 第 4 次采样（满 20 秒确认）
+    // 第 5 个样本恰好达到连续 20 秒。
     probe.pushSample({
-      processName: "bilibili",
-      windowTitle: "哔哩哔哩 - 热门视频",
+      processName: "video-player",
+      windowTitle: "Entertainment Feed",
       pid: 3003,
       capturedAt: "2026-08-29T10:10:20.000Z",
     });
@@ -193,7 +194,7 @@ describe("阶段 3 E2E 会话生命周期与自动巡查端到端验证", () => 
     expect(history[0].deviationCount).toBe(1);
 
     const observations = db.listSessionObservations(startSnapshot.sessionId);
-    expect(observations.length).toBeGreaterThanOrEqual(3);
+    expect(observations).toHaveLength(3);
 
     // 验证第一条观察是本地白名单记录
     expect(observations[0]).toMatchObject({
@@ -209,6 +210,97 @@ describe("阶段 3 E2E 会话生命周期与自动巡查端到端验证", () => 
     // 10. 资源安全释放与销毁
     engine.dispose();
     sessionService.dispose();
+    db.close();
+  });
+
+  it("真实 SessionService 回调保持首帧巡查，第二帧确认后只记一次偏航", async () => {
+    const db = new XingbanDatabase(":memory:");
+    const probe = new FakeForegroundProbe();
+    const captureService = new FakeCaptureService();
+    await captureService.startCapture("screen:0:0");
+    captureService.setMockFrame(new Uint8Array([0xff, 0xd8, 0xff, 0xd9]));
+    const visionAdapter = new FakeVisionAdapter();
+    visionAdapter.enqueueResponse({
+      label: "distracted",
+      confidence: 0.9,
+      reasonCode: "entertainment_content",
+    });
+    visionAdapter.enqueueResponse({
+      label: "distracted",
+      confidence: 0.95,
+      reasonCode: "entertainment_content",
+    });
+
+    let engine: InspectionEngine | null = null;
+    let service: SessionService;
+    service = new SessionService((snapshot) => {
+      const currentEngine = engine;
+      if (snapshot.phase !== "patrolling" || !currentEngine) return;
+      void currentEngine.inspectOnce().then((result) => {
+        const active = service.getActive();
+        if (
+          active?.sessionId === snapshot.sessionId &&
+          active.phase === "patrolling" &&
+          !currentEngine.hasPendingConfirmation()
+        ) {
+          service.applyInspectionResult(snapshot.sessionId, result.label);
+        }
+      });
+    }, db);
+
+    const started = service.start({
+      partnerId: "demo.guardian-zero",
+      packVersion: "1.0.0",
+      sceneId: "quiet-observatory",
+      goal: "验证二次确认闭环",
+      plannedMinutes: 25,
+      visionEnabled: true,
+    });
+    engine = new InspectionEngine({
+      sessionId: started.sessionId,
+      goal: started.goal,
+      visionEnabled: true,
+      sendWindowTitle: false,
+      rules: [],
+      probe,
+      classifier: new LocalRuleClassifier(),
+      captureService,
+      visionAdapter,
+      confirmationDelayMs: 30,
+      onConfirmDeviation: (sessionId) => {
+        const active = service.getActive();
+        if (active?.sessionId === sessionId && active.phase === "patrolling") {
+          service.applyInspectionResult(sessionId, "distracted");
+        }
+      },
+      onResolvePending: (sessionId, label) => {
+        const active = service.getActive();
+        if (active?.sessionId === sessionId && active.phase === "patrolling") {
+          service.applyInspectionResult(sessionId, label);
+        }
+      },
+      onObservation: () => {},
+    });
+    probe.pushSample({
+      processName: "video-player",
+      windowTitle: "Entertainment Feed",
+      pid: 4321,
+      capturedAt: "2026-08-29T11:00:00.000Z",
+    });
+
+    service.previewPatrol(started.sessionId);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(service.getActive()?.phase).toBe("patrolling");
+    expect(service.getActive()?.deviationCount).toBe(0);
+    expect(engine.hasPendingConfirmation()).toBe(true);
+
+    await new Promise((resolve) => setTimeout(resolve, 45));
+    expect(service.getActive()?.phase).toBe("feedback");
+    expect(service.getActive()?.deviationCount).toBe(1);
+    expect(visionAdapter.callCount).toBe(2);
+
+    engine.dispose();
+    service.dispose();
     db.close();
   });
 });
