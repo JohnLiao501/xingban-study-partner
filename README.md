@@ -45,6 +45,7 @@
 - [路线图](docs/08-roadmap.md)
 - [下一位 AI Agent 交接与后续执行计划](docs/09-agent-handoff-plan.md)
 - [巡查判定政策](docs/10-inspection-decision-policy.md)
+- [阶段 3 关闭与阶段 4 启动计划](docs/11-stage-3-completion-plan.md)
 - [AI Agent 项目执行规则](AGENTS.md)
 - [伙伴包 JSON Schema](schemas/partner-pack.v1.schema.json)
 - [无版权示例清单](examples/demo-partner/manifest.json)
