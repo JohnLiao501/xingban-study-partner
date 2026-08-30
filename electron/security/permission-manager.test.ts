@@ -17,19 +17,22 @@ import { PermissionManager } from "./permission-manager.js";
 describe("PermissionManager", () => {
   it("默认拒绝一切未经授权的请求", () => {
     const pm = new PermissionManager();
-    expect(pm.shouldAllowPermission(1, "media")).toBe(false);
-    expect(pm.shouldAllowPermission(1, "display-capture")).toBe(false);
+    expect(pm.shouldAllowPermissionCheck(1, "media", { mediaType: "video", isMainFrame: true })).toBe(false);
+    expect(pm.shouldAllowPermissionRequest(1, "display-capture")).toBe(false);
   });
 
-  it("摄像头与麦克风无条件拒绝（即使有 token）", () => {
+  it("权限请求阶段只接受 display-capture 或 Electron 44/Windows 的 media 空类型表示", () => {
     const pm = new PermissionManager();
     pm.setCaptureWebContentsId(42);
     pm.issueCaptureAuth("screen:0");
 
-    expect(pm.shouldAllowPermission(42, "camera")).toBe(false);
-    expect(pm.shouldAllowPermission(42, "microphone")).toBe(false);
-    expect(pm.shouldAllowPermission(42, "media", { mediaTypes: ["video"] })).toBe(false);
-    expect(pm.shouldAllowPermission(42, "media", { mediaTypes: ["audio"] })).toBe(false);
+    expect(pm.shouldAllowPermissionRequest(42, "camera")).toBe(false);
+    expect(pm.shouldAllowPermissionRequest(42, "microphone")).toBe(false);
+    expect(pm.shouldAllowPermissionRequest(42, "media", { mediaTypes: [] })).toBe(true);
+    expect(pm.shouldAllowPermissionRequest(42, "media", { mediaTypes: ["video"] })).toBe(false);
+    expect(pm.shouldAllowPermissionRequest(42, "media", { mediaTypes: ["audio"] })).toBe(false);
+    expect(pm.shouldAllowPermissionRequest(42, "media", { mediaTypes: ["video", "audio"] })).toBe(false);
+    expect(pm.shouldAllowPermissionRequest(42, "media")).toBe(true);
   });
 
   it("非注册的 webContentsId 始终拒绝", () => {
@@ -38,23 +41,38 @@ describe("PermissionManager", () => {
     pm.issueCaptureAuth("screen:0");
 
     // webContentsId 是 99，不是 42
-    expect(pm.shouldAllowPermission(99, "media")).toBe(false);
+    expect(pm.shouldAllowPermissionCheck(99, "media", { mediaType: "video", isMainFrame: true })).toBe(false);
+    expect(pm.shouldAllowPermissionRequest(99, "display-capture")).toBe(false);
   });
 
-  it("权限检查不消费 token；显示媒体 handler 消费后不可重放", () => {
+  it("Electron 44 的 media/video 主 frame 检查与 display-capture 请求均不消费 token", () => {
     const pm = new PermissionManager();
     pm.setCaptureWebContentsId(42);
     pm.issueCaptureAuth("screen:0");
 
-    // 权限检查可能由 Chromium 调用多次，本阶段不消费 token。
-    const allowed = pm.shouldAllowPermission(42, "display-capture");
-    expect(allowed).toBe(true);
-    expect(pm.shouldAllowPermission(42, "display-capture")).toBe(true);
+    expect(pm.shouldAllowPermissionCheck(42, "media", {
+      mediaType: "video",
+      isMainFrame: true,
+    })).toBe(true);
+    expect(pm.shouldAllowPermissionCheck(42, "media", {
+      mediaType: "video",
+      isMainFrame: false,
+    })).toBe(false);
+    expect(pm.shouldAllowPermissionCheck(42, "media", {
+      mediaType: "audio",
+      isMainFrame: true,
+    })).toBe(false);
+    expect(pm.shouldAllowPermissionRequest(42, "display-capture")).toBe(true);
+    expect(pm.shouldAllowPermissionRequest(42, "media", { mediaTypes: [] })).toBe(true);
 
     const auth = pm.consumeCaptureAuth(42);
     expect(auth?.sourceId).toBe("screen:0");
     expect(pm.consumeCaptureAuth(42)).toBeNull();
-    expect(pm.shouldAllowPermission(42, "display-capture")).toBe(false);
+    expect(pm.shouldAllowPermissionCheck(42, "media", {
+      mediaType: "video",
+      isMainFrame: true,
+    })).toBe(false);
+    expect(pm.shouldAllowPermissionRequest(42, "display-capture")).toBe(false);
   });
 
   it("非专用窗口无法消费授权", () => {
@@ -74,7 +92,10 @@ describe("PermissionManager", () => {
     // 延迟 30ms 超过 TTL
     await new Promise((r) => setTimeout(r, 30));
 
-    expect(pm.shouldAllowPermission(42, "media")).toBe(false);
+    expect(pm.shouldAllowPermissionCheck(42, "media", {
+      mediaType: "video",
+      isMainFrame: true,
+    })).toBe(false);
   });
 
   it("主动 revoke 立即失效", () => {
@@ -84,6 +105,6 @@ describe("PermissionManager", () => {
 
     pm.revokeCaptureAuth();
 
-    expect(pm.shouldAllowPermission(42, "media")).toBe(false);
+    expect(pm.shouldAllowPermissionRequest(42, "display-capture")).toBe(false);
   });
 });

@@ -38,6 +38,8 @@
 
 自包含 sidecar，每 5 秒调用 Win32 API 获取前台 HWND、进程名和窗口标题，通过标准输出发送单行 JSON。主进程只持有最新值；数据库最多保存 `appName` 与不可逆的 `windowTitleHash`。
 
+真实内容保护验收会在显式环境开关下复用该 sidecar 的原生 Win32 对照窗模式，并短暂显示青/黄对照块；主窗与悬浮窗同时显示品红/绿色受保护标记。只有单帧能看到原生对照块、却看不到两块受保护标记时才算通过。该模式不参与正常 `pnpm start`，无环境开关时 sidecar 只运行前台探针协议，正式界面也不会出现验收色块。
+
 ## 3. 模块边界
 
 ```text
@@ -91,6 +93,6 @@ Main Process
 
 - CSP 禁止远程脚本、`eval` 和非白名单网络目的地。
 - 兼容 API 的 `baseUrl` 只能由设置页保存，伙伴包不能修改。
-- 默认拒绝媒体权限；普通 `media`（摄像头/麦克风）始终拒绝，只有专用截图窗口在有效一次性授权下可请求 `display-capture`。
+- 默认拒绝媒体权限。Electron 44/Windows 的 `getDisplayMedia` 权限请求实测报告为 `media` 且 `mediaTypes` 为空，因此只为专用截图主 frame 的有效一次性授权放行该表示，并兼容规范化的 `display-capture`；带 `video`/`audio` 类型的摄像头或麦克风请求、其他窗口及无 token 请求均拒绝，最终还必须由 display-media handler 消费 token 并强制绑定用户选择的 `screen:` 源。
 - 日志对目标、标题、路径和响应内容做脱敏。
 - 伙伴包是纯数据，不提供插件钩子、HTML、CSS 或 JavaScript。

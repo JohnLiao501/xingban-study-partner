@@ -180,6 +180,74 @@ describe("InspectionEngine", () => {
     expect(confirmedDeviations).toHaveLength(0);
   });
 
+  it("默认把私人通讯降级为温和提醒，即使模型高置信判定 distracted 也不启动二次确认", async () => {
+    const engine = createEngine();
+    await captureService.startCapture("screen:0:0");
+    captureService.setMockFrame(new Uint8Array([0xff, 0xd8]));
+    probe.pushSample(createSample("chat", "Private conversation"));
+    visionAdapter.setNextResponse({
+      label: "distracted",
+      confidence: 0.97,
+      reasonCode: "private_communication",
+    });
+
+    const result = await engine.inspectOnce();
+
+    expect(result.label).toBe("uncertain");
+    expect(result.reasonCode).toBe("private_communication");
+    expect(engine.hasPendingConfirmation()).toBe(false);
+    expect(confirmedDeviations).toHaveLength(0);
+    expect(visionAdapter.lastRequest?.privateCommunicationPolicy).toBe("remind");
+  });
+
+  it("严格私人通讯策略仍必须经过 15 秒新帧二次确认", async () => {
+    const engine = createEngine({
+      privateCommunicationPolicy: "strict",
+      confirmationDelayMs: 25,
+    });
+    await captureService.startCapture("screen:0:0");
+    captureService.setMockFrame(new Uint8Array([0xff, 0xd8]));
+    probe.pushSample(createSample("chat", "Private conversation"));
+    visionAdapter.enqueueResponse({
+      label: "distracted",
+      confidence: 0.91,
+      reasonCode: "private_communication",
+    });
+    visionAdapter.enqueueResponse({
+      label: "distracted",
+      confidence: 0.93,
+      reasonCode: "private_communication",
+    });
+
+    const firstPass = await engine.inspectOnce();
+    expect(firstPass.label).toBe("uncertain");
+    expect(engine.hasPendingConfirmation()).toBe(true);
+    expect(confirmedDeviations).toHaveLength(0);
+
+    await new Promise((resolve) => setTimeout(resolve, 45));
+    expect(confirmedDeviations).toEqual(["session-test-1"]);
+    expect(visionAdapter.lastRequest?.privateCommunicationPolicy).toBe("strict");
+  });
+
+  it("模型返回标签与原因码矛盾时强制降级为 invalid_response", async () => {
+    const engine = createEngine();
+    await captureService.startCapture("screen:0:0");
+    captureService.setMockFrame(new Uint8Array([0xff, 0xd8]));
+    probe.pushSample(createSample("browser", "Mixed content"));
+    visionAdapter.setNextResponse({
+      label: "focused",
+      confidence: 0.99,
+      reasonCode: "entertainment_content",
+    });
+
+    const result = await engine.inspectOnce();
+
+    expect(result.label).toBe("uncertain");
+    expect(result.reasonCode).toBe("invalid_response");
+    expect(result.confidence).toBe(0);
+    expect(confirmedDeviations).toHaveLength(0);
+  });
+
   it("初次 AI 判定 distracted：当次温和提醒不扣偏航，15秒后新帧二次确认后才确认偏航", async () => {
     const engine = createEngine({ confirmationDelayMs: 25 });
     await captureService.startCapture("screen:0:0");

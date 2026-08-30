@@ -67,6 +67,7 @@ export interface CaptureControllerApi {
   onCaptureRequestFrame?: (listener: () => void) => () => void;
   onCaptureStopStream?: (listener: () => void) => () => void;
   sendCaptureFrame?: (frameData: Uint8Array | null) => Promise<void>;
+  notifyCaptureRendererReady?: () => Promise<void>;
   notifyCaptureStreamReady?: () => Promise<void>;
   notifyCaptureStreamEnded?: () => Promise<void>;
 }

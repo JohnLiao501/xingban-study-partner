@@ -11,6 +11,11 @@
  */
 
 import type { AppRule } from "../../shared/rules.js";
+import { enforceVisionDecisionPolicy } from "../../shared/inspection-policy.js";
+import {
+  DEFAULT_PRIVATE_COMMUNICATION_POLICY,
+  type PrivateCommunicationPolicy,
+} from "../../shared/session.js";
 import type {
   ForegroundSample,
   InspectionResult,
@@ -27,6 +32,7 @@ export interface InspectionEngineOptions {
   goal: string;
   visionEnabled: boolean;
   sendWindowTitle: boolean;
+  privateCommunicationPolicy?: PrivateCommunicationPolicy;
   rules: AppRule[];
   probe: ForegroundProbe;
   classifier: LocalRuleClassifier;
@@ -47,6 +53,7 @@ export class InspectionEngine {
   private readonly goal: string;
   private readonly visionEnabled: boolean;
   private readonly sendWindowTitle: boolean;
+  private readonly privateCommunicationPolicy: PrivateCommunicationPolicy;
   private rules: AppRule[];
 
   private readonly probe: ForegroundProbe;
@@ -72,6 +79,8 @@ export class InspectionEngine {
     this.goal = options.goal;
     this.visionEnabled = options.visionEnabled;
     this.sendWindowTitle = options.sendWindowTitle;
+    this.privateCommunicationPolicy = options.privateCommunicationPolicy
+      ?? DEFAULT_PRIVATE_COMMUNICATION_POLICY;
     this.rules = options.rules;
 
     this.probe = options.probe;
@@ -225,6 +234,7 @@ export class InspectionEngine {
         goal: this.goal,
         processName: sample.processName,
         windowTitle: this.sendWindowTitle ? sample.windowTitle : undefined,
+        privateCommunicationPolicy: this.privateCommunicationPolicy,
         imageJpeg: frameData,
       });
     } catch {
@@ -234,6 +244,11 @@ export class InspectionEngine {
       frameData?.fill(0);
       frameData = null;
     }
+
+    visionResult = enforceVisionDecisionPolicy(
+      visionResult,
+      this.privateCommunicationPolicy,
+    ).decision;
 
     // 4.1 AI 判定为 focused
     if (visionResult.label === "focused" && visionResult.confidence >= 0.7) {
@@ -345,6 +360,7 @@ export class InspectionEngine {
         goal: this.goal,
         processName: currentSample.processName,
         windowTitle: this.sendWindowTitle ? currentSample.windowTitle : undefined,
+        privateCommunicationPolicy: this.privateCommunicationPolicy,
         imageJpeg: secondFrame,
       });
     } catch {
@@ -355,6 +371,11 @@ export class InspectionEngine {
       secondFrame?.fill(0);
       secondFrame = null;
     }
+
+    secondResult = enforceVisionDecisionPolicy(
+      secondResult,
+      this.privateCommunicationPolicy,
+    ).decision;
 
     // 停止共享、暂停或销毁可能发生在网络请求飞行期间；迟到结果必须失效。
     if (!this.isPendingEpoch(epoch)) return;

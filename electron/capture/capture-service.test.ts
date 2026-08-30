@@ -61,6 +61,7 @@ describe("ElectronCaptureService", () => {
       sourceProviderCallCount += 1;
       return sourceProvider();
     });
+    service.handleRendererReady();
     const success = await service.startCapture("screen:1");
 
     expect(success).toBe(true);
@@ -78,6 +79,7 @@ describe("ElectronCaptureService", () => {
     const pm = new PermissionManager();
     const win = createMockWindow(() => {});
     const service = new ElectronCaptureService(() => win, pm, 3000, sourceProvider);
+    service.handleRendererReady();
 
     expect(await service.startCapture("")).toBe(false);
     expect(await service.startCapture("x".repeat(501))).toBe(false);
@@ -89,6 +91,7 @@ describe("ElectronCaptureService", () => {
     const win = createMockWindow(() => {});
 
     const service = new ElectronCaptureService(() => win, pm, 100, sourceProvider);
+    service.handleRendererReady();
     await service.startCapture("screen:1");
     service.handleStreamReady();
 
@@ -113,6 +116,7 @@ describe("ElectronCaptureService", () => {
 
     // 超时设置为 20ms
     const service = new ElectronCaptureService(() => win, pm, 20, sourceProvider);
+    service.handleRendererReady();
     await service.startCapture("screen:1");
     service.handleStreamReady();
 
@@ -129,6 +133,7 @@ describe("ElectronCaptureService", () => {
     const pm = new PermissionManager();
     const win = createMockWindow(() => {});
     const service = new ElectronCaptureService(() => win, pm, 100, sourceProvider);
+    service.handleRendererReady();
     await service.startCapture("screen:1");
     service.handleStreamReady();
 
@@ -149,6 +154,7 @@ describe("ElectronCaptureService", () => {
     const win = createMockWindow((channel) => sentMessages.push(channel));
 
     const service = new ElectronCaptureService(() => win, pm, 3000, sourceProvider);
+    service.handleRendererReady();
     await service.startCapture("screen:1");
     service.handleStreamReady();
     expect(service.getStatus()).toBe("active");
@@ -157,5 +163,32 @@ describe("ElectronCaptureService", () => {
     expect(service.getStatus()).toBe("stopped");
     expect(pm.hasActiveCaptureAuth()).toBe(false);
     expect(sentMessages).toContain("capture:stop-stream");
+  });
+
+  it("等待截图 renderer 明确就绪后才发出初始化消息", async () => {
+    const pm = new PermissionManager();
+    const sentMessages: string[] = [];
+    const win = createMockWindow((channel) => sentMessages.push(channel));
+    const service = new ElectronCaptureService(() => win, pm, 100, sourceProvider, 100);
+
+    const pending = service.startCapture("screen:1");
+    await Promise.resolve();
+    expect(sentMessages).toHaveLength(0);
+    service.handleRendererReady();
+
+    expect(await pending).toBe(true);
+    expect(sentMessages).toEqual(["capture:init-stream"]);
+  });
+
+  it("截图 renderer 未就绪时超时失败且不保留授权", async () => {
+    const pm = new PermissionManager();
+    const sentMessages: string[] = [];
+    const win = createMockWindow((channel) => sentMessages.push(channel));
+    const service = new ElectronCaptureService(() => win, pm, 100, sourceProvider, 5);
+
+    expect(await service.startCapture("screen:1")).toBe(false);
+    expect(service.getStatus()).toBe("failed");
+    expect(pm.hasActiveCaptureAuth()).toBe(false);
+    expect(sentMessages).toHaveLength(0);
   });
 });

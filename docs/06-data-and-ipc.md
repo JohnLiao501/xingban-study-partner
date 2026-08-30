@@ -181,6 +181,7 @@ interface StartSessionInput {
   captureSourceId?: string;
   visionEnabled?: boolean;
   sendWindowTitle?: boolean;
+  privateCommunicationPolicy?: "remind" | "strict";
   allowRuleIds?: string[];
   blockRuleIds?: string[];
 }

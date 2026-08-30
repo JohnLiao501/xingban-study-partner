@@ -9,6 +9,7 @@
 - 10～180 分钟的计划时长，默认 25 分钟。
 - 可选的允许/禁止应用规则。
 - 可选的屏幕源；未选择时只使用前台应用规则。
+- 私人通讯处理默认“温和提醒”；可逐场选择严格模式，开工后锁定。
 - 是否允许将未知状态的低分辨率单帧发送到配置的兼容 API，默认关闭。
 
 ## 2. 状态机
@@ -54,7 +55,11 @@ focusing/patrolling/feedback/break -> completed | aborted | interrupted
 - 未授权兼容 API、无捕获源或 API 失败：`uncertain`。
 - AI 返回 `focused` 且置信度不低于 0.70：记录 `focused`。
 - AI 返回 `distracted`：15 秒后再次抽样；两次置信度均不低于 0.80 才确认偏航。
+- 私人通讯默认强制归一化为 `uncertain`；严格模式下仍必须通过上述两帧确认。
+- 标签与原因码矛盾、AI 返回本地规则原因码或把应用名称直接当结论：`uncertain / invalid_response`。
 - 其他情况均为 `uncertain`。
+
+完整分类矩阵、目标上下文和不可观察边界见 `docs/10-inspection-decision-policy.md`。
 
 ## 5. 三次偏航
 

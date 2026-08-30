@@ -26,6 +26,7 @@ describe("validateStartSessionInput", () => {
       captureSourceId: "screen:1:0",
       visionEnabled: true,
       sendWindowTitle: false,
+      privateCommunicationPolicy: "remind",
       allowRuleIds: ["allow-1"],
       blockRuleIds: ["block-1"],
     };
@@ -36,6 +37,8 @@ describe("validateStartSessionInput", () => {
     expect(() => validateStartSessionInput({ ...valid, extra: true }))
       .toThrow(InspectionValidationError);
     expect(() => validateStartSessionInput({ ...valid, visionEnabled: "yes" }))
+      .toThrow(InspectionValidationError);
+    expect(() => validateStartSessionInput({ ...valid, privateCommunicationPolicy: "always-punish" }))
       .toThrow(InspectionValidationError);
     expect(() => validateStartSessionInput({ ...valid, allowRuleIds: ["same", "same"] }))
       .toThrow(InspectionValidationError);

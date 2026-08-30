@@ -13,11 +13,14 @@ export const SESSION_PHASES = [
 
 export const OBSERVATION_LABELS = ["focused", "uncertain", "distracted"] as const;
 export const SESSION_GRADES = ["S", "A", "B", "C", "D"] as const;
+export const PRIVATE_COMMUNICATION_POLICIES = ["remind", "strict"] as const;
+export const DEFAULT_PRIVATE_COMMUNICATION_POLICY = "remind" as const;
 
 export type SessionPhase = (typeof SESSION_PHASES)[number];
 export type ObservationLabel = (typeof OBSERVATION_LABELS)[number];
 export type SessionGrade = (typeof SESSION_GRADES)[number];
 export type SessionFinishMode = "completed" | "aborted" | "interrupted";
+export type PrivateCommunicationPolicy = (typeof PRIVATE_COMMUNICATION_POLICIES)[number];
 
 export interface StartSessionInput {
   partnerId: string;
@@ -32,6 +35,8 @@ export interface StartSessionInput {
   visionEnabled?: boolean;
   /** 是否允许向 AI 发送窗口标题，默认 false */
   sendWindowTitle?: boolean;
+  /** 私人通讯的处理方式：默认仅提醒；strict 才允许按分心进入二次确认 */
+  privateCommunicationPolicy?: PrivateCommunicationPolicy;
   /** 本场启用的允许规则 ID 列表 */
   allowRuleIds?: string[];
   /** 本场启用的禁止规则 ID 列表 */

@@ -29,6 +29,7 @@ describe("OpenAiVisionAdapter", () => {
     goal: "学习 Rust 异步并发",
     processName: "code",
     windowTitle: "main.rs - VS Code",
+    privateCommunicationPolicy: "remind",
     imageJpeg: new Uint8Array([0xff, 0xd8, 0xff, 0xd9]),
   };
 
@@ -86,6 +87,28 @@ describe("OpenAiVisionAdapter", () => {
     const fetchCall = (globalThis.fetch as any).mock.calls[0];
     expect(fetchCall[1].headers.Authorization).toBe("Bearer sk-valid-key");
     expect(fetchCall[1].redirect).toBe("manual");
+    const body = JSON.parse(fetchCall[1].body);
+    expect(body.messages[0].content).toContain("默认只提醒，绝不直接判罚");
+  });
+
+  it("严格私人通讯策略只改变提示口径，不绕过主进程二次确认", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(apiResponse(JSON.stringify({
+      label: "distracted",
+      confidence: 0.9,
+      reasonCode: "private_communication",
+    })));
+    const adapter = new OpenAiVisionAdapter({
+      baseUrl: "https://api.openai.com/v1",
+      model: "gpt-4o",
+      getApiKey: () => "sk-valid-key",
+    });
+
+    await adapter.analyze({ ...dummyRequest, privateCommunicationPolicy: "strict" });
+
+    const fetchCall = (globalThis.fetch as any).mock.calls[0];
+    const body = JSON.parse(fetchCall[1].body);
+    expect(body.messages[0].content).toContain("与当前目标没有明确关系");
+    expect(body.messages[0].content).not.toContain("allowed_app");
   });
 
   it("拒绝 Markdown 代码块包裹的模型响应", async () => {

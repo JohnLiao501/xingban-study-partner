@@ -1,5 +1,9 @@
 import { useState, useEffect, type FormEvent } from "react";
-import type { StartSessionInput } from "../../shared/session";
+import {
+  DEFAULT_PRIVATE_COMMUNICATION_POLICY,
+  type PrivateCommunicationPolicy,
+  type StartSessionInput,
+} from "../../shared/session";
 import type { CaptureSourceSummary, VisionSettingsView } from "../../shared/inspection";
 import type { AppRule } from "../../shared/rules";
 
@@ -32,6 +36,8 @@ export function SessionSetupDialog({
   const [visionSettings, setVisionSettings] = useState<VisionSettingsView | null>(null);
   const [visionEnabled, setVisionEnabled] = useState(false);
   const [sendWindowTitle, setSendWindowTitle] = useState(false);
+  const [privateCommunicationPolicy, setPrivateCommunicationPolicy] =
+    useState<PrivateCommunicationPolicy>(DEFAULT_PRIVATE_COMMUNICATION_POLICY);
   const [rules, setRules] = useState<AppRule[]>([]);
 
   useEffect(() => {
@@ -85,6 +91,7 @@ export function SessionSetupDialog({
       captureSourceId: selectedSourceId || undefined,
       visionEnabled: Boolean(selectedSourceId && visionEnabled && visionSettings?.apiKeyConfigured),
       sendWindowTitle: Boolean(selectedSourceId && visionEnabled && sendWindowTitle),
+      privateCommunicationPolicy,
       allowRuleIds: rules.filter((r) => r.enabled && r.decision === "allow").map((r) => r.id),
       blockRuleIds: rules.filter((r) => r.enabled && r.decision === "block").map((r) => r.id),
     });
@@ -179,22 +186,34 @@ export function SessionSetupDialog({
             ) : null}
 
             {visionEnabled && visionSettings?.apiKeyConfigured ? (
-              <label style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "8px", cursor: "pointer" }}>
-                <input
-                  checked={sendWindowTitle}
-                  onChange={(e) => setSendWindowTitle(e.target.checked)}
-                  type="checkbox"
-                />
-                <span style={{ fontSize: "12px", color: "var(--color-text-secondary, #94a3b8)" }}>
-                  向 AI 发送前台窗口标题（有助于区分学习与娱乐页面，可随时关闭）
-                </span>
-              </label>
+              <div className="session-vision-options__details">
+                <label className="session-vision-checkbox">
+                  <input
+                    checked={sendWindowTitle}
+                    onChange={(e) => setSendWindowTitle(e.target.checked)}
+                    type="checkbox"
+                  />
+                  <span>向 AI 发送前台窗口标题（有助于区分学习与娱乐页面）</span>
+                </label>
+                <label className="session-policy-field">
+                  <span>私人通讯处理</span>
+                  <select
+                    onChange={(event) => setPrivateCommunicationPolicy(event.target.value as PrivateCommunicationPolicy)}
+                    value={privateCommunicationPolicy}
+                  >
+                    <option value="remind">温和提醒（默认，不扣偏航）</option>
+                    <option value="strict">严格判定（仍需 15 秒二次确认）</option>
+                  </select>
+                </label>
+                <small>聊天软件不会因应用名称被一刀切；AI 必须结合本场目标和画面内容。</small>
+              </div>
             ) : null}
           </div>
         ) : null}
 
         <div className="session-dialog__note" style={{ fontSize: "12px", marginTop: "12px" }}>
           已载入本地判定规则：{allowCount} 条允许，{blockCount} 条禁止。本地规则拥有最高优先级。
+          <br />私人通讯默认仅温和提醒，不消耗偏航；启用 AI 后可为本场切换严格模式。
         </div>
 
         <div className="session-dialog__actions">

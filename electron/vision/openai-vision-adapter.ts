@@ -15,6 +15,7 @@ import type {
 } from "./vision-adapter.js";
 import { validateVisionResponse } from "../../shared/inspection.js";
 import { validateVisionBaseUrl } from "../../shared/validation.js";
+import type { PrivateCommunicationPolicy } from "../../shared/session.js";
 
 export interface OpenAiVisionConfig {
   baseUrl: string;
@@ -23,7 +24,12 @@ export interface OpenAiVisionConfig {
   getApiKey: () => string | null;
 }
 
-const SYSTEM_PROMPT = `你是一个本地 AI 伴学督学判定助手。
+function buildSystemPrompt(privateCommunicationPolicy: PrivateCommunicationPolicy): string {
+  const privateCommunicationRule = privateCommunicationPolicy === "strict"
+    ? "画面属于私人通讯或聊天，且与当前目标没有明确关系 -> distracted, private_communication；仍须极高把握"
+    : "画面属于私人通讯或聊天 -> uncertain, private_communication；默认只提醒，绝不直接判罚";
+
+  return `你是一个本地 AI 伴学督学判定助手。
 用户的目标是专注于指定的学习或工作任务。
 根据用户给出的【当前目标】、【前台应用名】、【窗口标题（若提供）】以及【当前屏幕单帧截图】，判断用户当前是否处于专注学习状态。
 
@@ -32,15 +38,17 @@ const SYSTEM_PROMPT = `你是一个本地 AI 伴学督学判定助手。
 {
   "label": "focused" | "uncertain" | "distracted",
   "confidence": 0.0 到 1.0 之间的数值,
-  "reasonCode": "allowed_app" | "blocked_app" | "task_related_content" | "entertainment_content" | "private_communication" | "insufficient_evidence" | "capture_unavailable" | "api_unavailable" | "invalid_response"
+  "reasonCode": "task_related_content" | "entertainment_content" | "private_communication" | "insufficient_evidence"
 }
 
 判定原则：
 1. 画面或应用与目标明确相关 -> "focused", "task_related_content"
 2. 画面包含明确的短视频、游戏、影视流媒体或摸鱼娱乐 -> "distracted", "entertainment_content"
-3. 画面属于私密通讯或聊天 -> "distracted", "private_communication"
+3. ${privateCommunicationRule}
 4. 画面模糊、处于桌面、锁屏或信息不足以断定 -> "uncertain", "insufficient_evidence"
-5. 若判定为 distracted，只有当你极其确定时才给出 >= 0.80 的置信度。若不能完全确定，置信度应低于 0.80 或直接给出 uncertain。`;
+5. 浏览器、视频站、聊天软件或开发工具本身不能决定结果，必须结合当前目标和画面内容。
+6. 若判定为 distracted，只有当你极其确定时才给出 >= 0.80 的置信度。若不能完全确定，置信度应低于 0.80 或直接给出 uncertain。`;
+}
 
 const MAX_RESPONSE_BYTES = 64 * 1024;
 const MAX_MODEL_CONTENT_LENGTH = 4_096;
@@ -139,7 +147,7 @@ export class OpenAiVisionAdapter implements VisionAdapter {
     const payload = {
       model: this.model,
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
+        { role: "system", content: buildSystemPrompt(request.privateCommunicationPolicy) },
         {
           role: "user",
           content: [

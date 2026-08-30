@@ -1511,6 +1511,39 @@ input:focus-visible {
   white-space: nowrap;
 }
 
+.session-vision-options__details {
+  display: grid;
+  gap: 9px;
+  margin-top: 9px;
+}
+
+.session-vision-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: var(--color-text-secondary, #94a3b8);
+  font-size: 12px;
+}
+
+.session-policy-field {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  color: var(--color-text-secondary, #94a3b8);
+  font-size: 12px;
+}
+
+.session-policy-field select {
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  background: #071321;
+}
+
 .session-field:first-of-type small {
   position: absolute;
   right: 11px;

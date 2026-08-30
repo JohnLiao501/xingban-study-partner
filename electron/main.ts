@@ -33,6 +33,7 @@ import {
   type ReactionKey,
 } from "../shared/partner-pack.js";
 import {
+  DEFAULT_PRIVATE_COMMUNICATION_POLICY,
   type ObservationLabel,
   type SessionFinishMode,
   type StartSessionInput,
@@ -50,6 +51,8 @@ import { XingbanDatabase } from "./storage/database.js";
 import { PermissionManager } from "./security/permission-manager.js";
 import { SecretStore } from "./security/secret-store.js";
 import { ElectronCaptureService } from "./capture/capture-service.js";
+import { ContentProtectionAcceptanceRunner } from "./acceptance/content-protection-runner.js";
+import { runSafeStorageAcceptance } from "./acceptance/safe-storage-runner.js";
 import { OpenAiVisionAdapter } from "./vision/openai-vision-adapter.js";
 import { WindowsForegroundProbe } from "./inspection/windows-foreground-probe.js";
 import { LocalRuleClassifier } from "./inspection/local-rule-classifier.js";
@@ -79,6 +82,7 @@ protocol.registerSchemesAsPrivileged([
 
 const permissionManager = new PermissionManager();
 let captureService: ElectronCaptureService | null = null;
+const contentProtectionAcceptance = new ContentProtectionAcceptanceRunner();
 let secretStore: SecretStore | null = null;
 let visionAdapter: OpenAiVisionAdapter | null = null;
 let foregroundProbe: WindowsForegroundProbe | null = null;
@@ -172,13 +176,12 @@ function createMainWindow(): BrowserWindow {
       additionalArguments: ["--xingban-view=main"],
     },
   });
-  window.setContentProtection(true);
+  // 验收专场启动时暂时可见，便于用户/自动化完成显式选源；真正取帧前
+  // ContentProtectionAcceptanceRunner 会重新开启保护。正常运行始终开启。
+  window.setContentProtection(!contentProtectionAcceptance.isEnabled());
   hardenWindow(window);
   window.webContents.on("did-fail-load", (_event, errorCode, errorDescription) => {
     console.error("[MainWindow] Failed to load renderer:", errorCode, errorDescription);
-  });
-  window.webContents.on("console-message", (_event, level, message, line, sourceId) => {
-    console.log(`[RendererConsole level=${level}] ${message} (${sourceId}:${line})`);
   });
   window.webContents.on("render-process-gone", (_event, details) => {
     console.error("[RenderProcessGone]", details);
@@ -220,7 +223,7 @@ function createOverlayWindow(): BrowserWindow {
     },
   });
   window.setAlwaysOnTop(true, "floating");
-  window.setContentProtection(true);
+  window.setContentProtection(!contentProtectionAcceptance.isEnabled());
   window.setIgnoreMouseEvents(true, { forward: true });
   hardenWindow(window);
   void loadRenderer(window, "overlay");
@@ -244,8 +247,29 @@ function createCaptureWindow(): BrowserWindow {
   });
   window.setContentProtection(true);
   permissionManager.setCaptureWebContentsId(window.webContents.id);
+  window.webContents.on("did-start-loading", () => {
+    captureService?.handleRendererUnavailable();
+  });
+  window.webContents.on("render-process-gone", () => {
+    if (contentProtectionAcceptance.isEnabled()) {
+      console.error('[Acceptance:ContentProtection] {"outcome":"capture-renderer-gone"}');
+    }
+    captureService?.handleRendererUnavailable();
+  });
+  window.webContents.on("console-message", (details) => {
+    if (!contentProtectionAcceptance.isEnabled()) return;
+    const match = /^\[CaptureView\] ([A-Za-z0-9_-]{1,64})$/.exec(details.message);
+    console.log(`[Acceptance:ContentProtection] ${JSON.stringify({
+      outcome: "capture-renderer",
+      code: match?.[1] ?? "RENDERER_CONSOLE_REDACTED",
+    })}`);
+  });
   window.webContents.once("destroyed", () => {
+    if (contentProtectionAcceptance.isEnabled()) {
+      console.error('[Acceptance:ContentProtection] {"outcome":"capture-window-destroyed"}');
+    }
     permissionManager.setCaptureWebContentsId(null);
+    captureService?.handleRendererUnavailable();
     inspectionEngine?.cancelPendingConfirmation(true);
     void captureService?.stopCapture();
   });
@@ -525,6 +549,8 @@ function registerIpc(): void {
         goal: snapshot.goal,
         visionEnabled: Boolean(input.visionEnabled),
         sendWindowTitle: Boolean(input.sendWindowTitle),
+        privateCommunicationPolicy: input.privateCommunicationPolicy
+          ?? DEFAULT_PRIVATE_COMMUNICATION_POLICY,
         rules: activeRules,
         probe: foregroundProbe,
         classifier: new LocalRuleClassifier(),
@@ -637,12 +663,25 @@ function registerIpc(): void {
     }
     captureService?.handleIncomingFrame(frameData);
   });
+  ipcMain.handle("capture:renderer-ready", (event) => {
+    requireCaptureSender(event);
+    if (contentProtectionAcceptance.isEnabled()) {
+      console.log('[Acceptance:ContentProtection] {"outcome":"renderer-ready-ipc"}');
+    }
+    captureService?.handleRendererReady();
+  });
   ipcMain.handle("capture:stream-ready", (event) => {
     requireCaptureSender(event);
+    if (contentProtectionAcceptance.isEnabled()) {
+      console.log('[Acceptance:ContentProtection] {"outcome":"stream-ready-ipc"}');
+    }
     captureService?.handleStreamReady();
   });
   ipcMain.handle("capture:stream-ended", (event) => {
     requireCaptureSender(event);
+    if (contentProtectionAcceptance.isEnabled()) {
+      console.error('[Acceptance:ContentProtection] {"outcome":"stream-ended-ipc"}');
+    }
     inspectionEngine?.cancelPendingConfirmation(true);
     captureService?.handleStreamEnded();
   });
@@ -722,34 +761,76 @@ if (!gotTheLock) {
 
   session.defaultSession.setPermissionCheckHandler((webContents, permission, _origin, details) => {
     if (!webContents) return false;
-    return permissionManager.shouldAllowPermission(
+    const allowed = permissionManager.shouldAllowPermissionCheck(
       webContents.id,
       permission,
-      details as { mediaTypes?: string[] },
+      details as { mediaType?: string; isMainFrame?: boolean },
     );
+    if (contentProtectionAcceptance.isEnabled()) {
+      console.log(`[Acceptance:ContentProtection] ${JSON.stringify({
+        outcome: "permission-check",
+        permission,
+        mediaType: details.mediaType ?? null,
+        isMainFrame: details.isMainFrame,
+        allowed,
+      })}`);
+    }
+    return allowed;
   });
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
-    const allowed = permissionManager.shouldAllowPermission(
+    const allowed = permissionManager.shouldAllowPermissionRequest(
       webContents.id,
       permission,
       details as { mediaTypes?: string[] },
     );
+    if (contentProtectionAcceptance.isEnabled()) {
+      console.log(`[Acceptance:ContentProtection] ${JSON.stringify({
+        outcome: "permission-request",
+        permission,
+        mediaTypes: "mediaTypes" in details ? details.mediaTypes ?? [] : [],
+        allowed,
+      })}`);
+    }
     callback(allowed);
   });
   session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
     const currentCaptureWindow = captureWindow;
     const frame = request.frame;
+    const captureWindowExists = Boolean(
+      currentCaptureWindow && !currentCaptureWindow.isDestroyed(),
+    );
+    const frameMatches = Boolean(
+      currentCaptureWindow && frame &&
+      frame === currentCaptureWindow.webContents.mainFrame,
+    );
+    const trustedFrameUrl = Boolean(
+      currentCaptureWindow && frame &&
+      frame.url === currentCaptureWindow.webContents.getURL(),
+    );
     const validRequester = Boolean(
-      currentCaptureWindow &&
-      !currentCaptureWindow.isDestroyed() &&
-      frame &&
-      frame === currentCaptureWindow.webContents.mainFrame &&
-      request.securityOrigin === frame.origin &&
+      captureWindowExists &&
+      frameMatches &&
+      trustedFrameUrl &&
       request.videoRequested &&
       !request.audioRequested,
     );
+    if (contentProtectionAcceptance.isEnabled()) {
+      console.log(`[Acceptance:ContentProtection] ${JSON.stringify({
+        outcome: "display-request",
+        captureWindowExists,
+        frameMatches,
+        trustedFrameUrl,
+        validRequester,
+        videoRequested: request.videoRequested,
+        audioRequested: request.audioRequested,
+      })}`);
+    }
     if (!validRequester || !currentCaptureWindow) {
-      callback({});
+      try {
+        callback({});
+      } catch {
+        // Electron 44/Windows 在拒绝 video 请求时可能同步抛 TypeError；拒绝仍生效。
+      }
       return;
     }
 
@@ -766,14 +847,31 @@ if (!gotTheLock) {
     }).then((sources) => {
       const selected = sources.find((source) => source.id === auth.sourceId);
       const requestStillActive = captureService?.isAwaitingStream(auth.sourceId) ?? false;
-      callback(selected && requestStillActive ? { video: selected } : {});
+      if (contentProtectionAcceptance.isEnabled()) {
+        console.log(`[Acceptance:ContentProtection] ${JSON.stringify({
+          outcome: "source-resolution",
+          sourceCount: sources.length,
+          selectedFound: Boolean(selected),
+          requestStillActive,
+        })}`);
+      }
+      try {
+        callback(selected && requestStillActive ? { video: selected } : {});
+      } catch {
+        // 只允许失败关闭；不得在回调异常后改授其他源或重试。
+      }
     }).catch(() => {
-      callback({});
+      try {
+        callback({});
+      } catch {
+        // 安全拒绝。
+      }
     });
   }, { useSystemPicker: false });
   bundledDemo = await loadBundledDemo(projectRoot);
   database = new XingbanDatabase(path.join(app.getPath("userData"), "xingban.sqlite3"));
   secretStore = new SecretStore(database);
+  void runSafeStorageAcceptance(app.getPath("temp"));
 
   protocol.handle("partner-asset", (request) => {
     try {
@@ -903,12 +1001,28 @@ if (!gotTheLock) {
   captureWindow = createCaptureWindow();
 
   captureService = new ElectronCaptureService(() => captureWindow ?? null, permissionManager);
+  if (contentProtectionAcceptance.isEnabled()) {
+    console.log('[Acceptance:ContentProtection] {"outcome":"armed","status":"inactive"}');
+  }
   captureService.onStatusChange((status) => {
+    if (contentProtectionAcceptance.isEnabled()) {
+      console.log(`[Acceptance:ContentProtection] ${JSON.stringify({ outcome: "status", status })}`);
+    }
     if (status === "stopped" || status === "failed") {
       inspectionEngine?.cancelPendingConfirmation(true);
     }
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("capture:status-changed", status);
+    }
+    if (
+      status === "active" &&
+      captureService &&
+      mainWindow &&
+      overlayWindow &&
+      !mainWindow.isDestroyed() &&
+      !overlayWindow.isDestroyed()
+    ) {
+      void contentProtectionAcceptance.run(captureService, mainWindow, overlayWindow);
     }
   });
 

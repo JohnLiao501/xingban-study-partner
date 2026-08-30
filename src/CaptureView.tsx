@@ -22,6 +22,7 @@ export function CaptureView() {
 
     // 1. 监听初始化屏幕流请求
     const unbindInit = api.onCaptureInitStream?.(async () => {
+      console.info("[CaptureView] INIT_RECEIVED");
       const currentGeneration = ++streamGeneration;
       stopCurrentStream();
 
@@ -58,8 +59,14 @@ export function CaptureView() {
           for (const track of stream.getTracks()) track.stop();
           return;
         }
+        console.info("[CaptureView] STREAM_READY");
         await api.notifyCaptureStreamReady?.();
-      } catch {
+      } catch (error) {
+        // 只记录低敏异常类别，禁止输出源 ID、窗口标题、画面或浏览器原始错误详情。
+        const errorCode = error instanceof DOMException
+          ? error.name
+          : "CAPTURE_STREAM_START_FAILED";
+        console.error(`[CaptureView] ${errorCode}`);
         if (currentGeneration === streamGeneration) {
           void api.notifyCaptureStreamEnded?.();
         }
@@ -139,11 +146,22 @@ export function CaptureView() {
 
     // 3. 监听停止捕获流
     const unbindStop = api.onCaptureStopStream?.(() => {
+      console.info("[CaptureView] STOP_RECEIVED");
       streamGeneration += 1;
       stopCurrentStream();
     });
 
+    // 监听器全部绑定后再通知主进程。零延迟定时器也避开 React StrictMode
+    // 开发态的首次 setup/cleanup 探测，防止主进程向已解绑的监听器发消息。
+    const rendererReadyTimer = window.setTimeout(() => {
+      console.info("[CaptureView] RENDERER_READY");
+      void api.notifyCaptureRendererReady?.().catch(() => {
+        console.error("[CaptureView] RENDERER_READY_IPC_FAILED");
+      });
+    }, 0);
+
     return () => {
+      window.clearTimeout(rendererReadyTimer);
       unbindInit?.();
       unbindRequestFrame?.();
       unbindStop?.();

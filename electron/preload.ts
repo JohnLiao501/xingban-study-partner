@@ -20,6 +20,7 @@ type MainStudyPartnerApi = Omit<StudyPartnerApi,
   | "onCaptureRequestFrame"
   | "onCaptureStopStream"
   | "sendCaptureFrame"
+  | "notifyCaptureRendererReady"
   | "notifyCaptureStreamReady"
   | "notifyCaptureStreamEnded"
 >;
@@ -96,6 +97,7 @@ const captureApi = {
   },
   sendCaptureFrame: (frameData: Uint8Array | null) =>
     ipcRenderer.invoke("capture:send-frame", frameData) as Promise<void>,
+  notifyCaptureRendererReady: () => ipcRenderer.invoke("capture:renderer-ready") as Promise<void>,
   notifyCaptureStreamReady: () => ipcRenderer.invoke("capture:stream-ready") as Promise<void>,
   notifyCaptureStreamEnded: () => ipcRenderer.invoke("capture:stream-ended") as Promise<void>,
 };

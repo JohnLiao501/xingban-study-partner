@@ -2,7 +2,7 @@
  * 多模态 AI 判定适配器接口与测试替身
  */
 
-import type { ObservationLabel } from "../../shared/session.js";
+import type { ObservationLabel, PrivateCommunicationPolicy } from "../../shared/session.js";
 import type { ObservationReasonCode } from "../../shared/inspection.js";
 
 /** 发送给多模态模型的分析请求入参 */
@@ -10,6 +10,7 @@ export interface VisionAnalysisRequest {
   goal: string;
   processName: string;
   windowTitle?: string;
+  privateCommunicationPolicy: PrivateCommunicationPolicy;
   imageJpeg: Uint8Array;
 }
 

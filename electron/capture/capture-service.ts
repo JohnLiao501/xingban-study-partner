@@ -107,12 +107,16 @@ export class ElectronCaptureService implements CaptureService {
   private activeSourceId: string | null = null;
   private isCapturingFrame = false;
   private pendingFrameResolve: ((frame: Uint8Array | null) => void) | null = null;
+  private rendererReady = false;
+  private rendererReadyWaiters = new Set<(ready: boolean) => void>();
+  private startGeneration = 0;
 
   constructor(
     private readonly getCaptureWindow: () => BrowserWindow | null,
     private readonly permissionManager: PermissionManager,
     private readonly frameTimeoutMs = 3000,
     private readonly sourceProvider?: () => Promise<CaptureSourceSummary[]>,
+    private readonly rendererReadyTimeoutMs = 5000,
   ) {}
 
   async listSources(): Promise<CaptureSourceSummary[]> {
@@ -146,6 +150,13 @@ export class ElectronCaptureService implements CaptureService {
         await this.stopCapture();
       }
 
+      const generation = ++this.startGeneration;
+      if (!await this.waitForRendererReady() || generation !== this.startGeneration) {
+        this.permissionManager.revokeCaptureAuth();
+        this.setStatus("failed");
+        return false;
+      }
+
       // 1. 发放单次授权 token 给 permissionManager
       this.permissionManager.issueCaptureAuth(sourceId);
 
@@ -161,6 +172,18 @@ export class ElectronCaptureService implements CaptureService {
       this.setStatus("failed");
       return false;
     }
+  }
+
+  /** 截图 renderer 在所有受限 IPC 监听器绑定后调用。 */
+  handleRendererReady(): void {
+    this.rendererReady = true;
+    for (const resolve of [...this.rendererReadyWaiters]) resolve(true);
+  }
+
+  /** 页面重载、renderer 崩溃或窗口销毁时撤销就绪状态并取消等待。 */
+  handleRendererUnavailable(): void {
+    this.rendererReady = false;
+    for (const resolve of [...this.rendererReadyWaiters]) resolve(false);
   }
 
   /** 截图窗口确认 MediaStream 已建立后才进入 active。 */
@@ -234,6 +257,7 @@ export class ElectronCaptureService implements CaptureService {
   }
 
   async stopCapture(): Promise<void> {
+    this.startGeneration += 1;
     this.activeSourceId = null;
     this.permissionManager.revokeCaptureAuth();
 
@@ -272,5 +296,22 @@ export class ElectronCaptureService implements CaptureService {
     for (const l of this.statusListeners) {
       l(newStatus);
     }
+  }
+
+  private waitForRendererReady(): Promise<boolean> {
+    if (this.rendererReady) return Promise.resolve(true);
+
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (ready: boolean) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        this.rendererReadyWaiters.delete(finish);
+        resolve(ready);
+      };
+      const timer = setTimeout(() => finish(false), this.rendererReadyTimeoutMs);
+      this.rendererReadyWaiters.add(finish);
+    });
   }
 }

@@ -85,53 +85,43 @@ export class PermissionManager {
   }
 
   /**
-   * 判定权限请求是否允许（纯函数逻辑，供 Electron permissionRequestHandler 调用）
-   *
-   * @param requesterWebContentsId 发起请求的 webContents id
-   * @param permission 请求的权限类型
-   * @param details 额外请求详情（如 mediaType）
+   * Electron 44 会把 getDisplayMedia 的前置检查报告为 media/video，而不是
+   * display-capture。这里只为专用主 frame 的一次性授权放行检查；最终源选择仍由
+   * display-media handler 消费 token 并强制绑定用户选择的 screen source。
    */
-  shouldAllowPermission(
+  shouldAllowPermissionCheck(
+    requesterWebContentsId: number,
+    permission: string,
+    details?: { mediaType?: string; isMainFrame?: boolean },
+  ): boolean {
+    return this.isAuthorizedCaptureWindow(requesterWebContentsId) &&
+      permission === "media" &&
+      details?.mediaType === "video" &&
+      details.isMainFrame === true &&
+      this.hasActiveCaptureAuth();
+  }
+
+  /**
+   * Electron 44/Windows 的权限请求实测会把 getDisplayMedia 报告为
+   * media 且 mediaTypes 为空；同时兼容规范化的 display-capture。摄像头/麦克风
+   * 请求会声明 video/audio 类型并被拒绝。最终仍必须经过 display-media handler。
+   */
+  shouldAllowPermissionRequest(
     requesterWebContentsId: number,
     permission: string,
     details?: { mediaTypes?: string[] },
   ): boolean {
-    // 摄像头和麦克风一律无条件拒绝
-    if (
-      permission === "camera" ||
-      permission === "microphone" ||
-      permission === "media" ||
-      permission === "clipboard-read" ||
-      permission === "notifications" ||
-      permission === "geolocation"
-    ) {
-      return false;
-    }
-
-    if (details?.mediaTypes) {
-      if (details.mediaTypes.includes("audio")) return false;
-    }
-
-    // 仅允许专用截图窗口
-    if (
-      this.captureWebContentsId === null ||
-      requesterWebContentsId !== this.captureWebContentsId
-    ) {
-      return false;
-    }
-
-    // Electron 44 的显示捕获使用独立 display-capture 权限；普通 media
-    // 可能代表摄像头或麦克风，已在上方无条件拒绝。
+    if (!this.isAuthorizedCaptureWindow(requesterWebContentsId)) return false;
+    const mediaTypes = details?.mediaTypes ?? [];
     const isDisplayCapture = permission === "display-capture";
+    const isWindowsDisplayMedia = permission === "media" && mediaTypes.length === 0;
+    if (!isDisplayCapture && !isWindowsDisplayMedia) return false;
+    if (mediaTypes.includes("audio")) return false;
+    return this.hasActiveCaptureAuth();
+  }
 
-    if (!isDisplayCapture) {
-      return false;
-    }
-
-    // 权限检查阶段不消费 token；实际 source 选择由 display-media handler 完成。
-    if (!this.hasActiveCaptureAuth()) {
-      return false;
-    }
-    return true;
+  private isAuthorizedCaptureWindow(requesterWebContentsId: number): boolean {
+    return this.captureWebContentsId !== null &&
+      requesterWebContentsId === this.captureWebContentsId;
   }
 }

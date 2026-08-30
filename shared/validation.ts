@@ -4,7 +4,11 @@ import {
   type SaveVisionSettingsInput,
 } from "./inspection.js";
 import type { SaveAppRuleInput } from "./rules.js";
-import type { StartSessionInput } from "./session.js";
+import {
+  PRIVATE_COMMUNICATION_POLICIES,
+  type PrivateCommunicationPolicy,
+  type StartSessionInput,
+} from "./session.js";
 
 const PARTNER_ID_MAX_LENGTH = 120;
 const SCENE_ID_MAX_LENGTH = 120;
@@ -61,12 +65,30 @@ function optionalStringArray(record: Record<string, unknown>, key: string): stri
   return normalized;
 }
 
+function optionalPrivateCommunicationPolicy(
+  record: Record<string, unknown>,
+): PrivateCommunicationPolicy | undefined {
+  const value = record.privateCommunicationPolicy;
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || !PRIVATE_COMMUNICATION_POLICIES.includes(value as PrivateCommunicationPolicy)) {
+    throw new InspectionValidationError("privateCommunicationPolicy 无效");
+  }
+  return value as PrivateCommunicationPolicy;
+}
+
 export function validateStartSessionInput(input: unknown): StartSessionInput {
   const record = requireRecord(input);
   requireExactKeys(
     record,
     ["partnerId", "packVersion", "sceneId", "goal", "plannedMinutes"],
-    ["captureSourceId", "visionEnabled", "sendWindowTitle", "allowRuleIds", "blockRuleIds"],
+    [
+      "captureSourceId",
+      "visionEnabled",
+      "sendWindowTitle",
+      "privateCommunicationPolicy",
+      "allowRuleIds",
+      "blockRuleIds",
+    ],
   );
 
   if (!Number.isInteger(record.plannedMinutes) ||
@@ -88,6 +110,9 @@ export function validateStartSessionInput(input: unknown): StartSessionInput {
     ...(captureSourceId ? { captureSourceId } : {}),
     ...(record.visionEnabled !== undefined ? { visionEnabled: optionalBoolean(record, "visionEnabled") } : {}),
     ...(record.sendWindowTitle !== undefined ? { sendWindowTitle: optionalBoolean(record, "sendWindowTitle") } : {}),
+    ...(record.privateCommunicationPolicy !== undefined
+      ? { privateCommunicationPolicy: optionalPrivateCommunicationPolicy(record) }
+      : {}),
     ...(record.allowRuleIds !== undefined ? { allowRuleIds: optionalStringArray(record, "allowRuleIds") } : {}),
     ...(record.blockRuleIds !== undefined ? { blockRuleIds: optionalStringArray(record, "blockRuleIds") } : {}),
   };
