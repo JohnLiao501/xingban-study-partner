@@ -10,6 +10,7 @@
  */
 
 import { describe, it, expect } from "vitest";
+import { EventEmitter } from "node:events";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { WindowsForegroundProbe } from "./windows-foreground-probe.js";
@@ -20,7 +21,7 @@ const hasRealExe = fs.existsSync(realExePath);
 const runRealProbeTest = hasRealExe && process.env.XINGBAN_REAL_PROBE_TEST === "1";
 
 describe("WindowsForegroundProbe", () => {
-  it("可执行文件不存在时安全降级为 unavailable 且不抛出异常", () => {
+  it("可执行文件不存在时安全降级为 unavailable 且不抛出异常", async () => {
     const probe = new WindowsForegroundProbe({
       executablePath: "C:\\non_existent_probe_path_12345.exe",
     });
@@ -31,7 +32,7 @@ describe("WindowsForegroundProbe", () => {
     probe.start(() => {});
     expect(probe.getStatus()).toBe("unavailable");
     expect(statuses).toEqual(["unavailable"]);
-    probe.stop();
+    expect(await probe.stopAndWait()).toBe(true);
   });
 
   it.skipIf(!runRealProbeTest)("真实 sidecar 正常启动并接收至少一个前台样本", async () => {
@@ -59,7 +60,7 @@ describe("WindowsForegroundProbe", () => {
     expect(typeof sample.pid).toBe("number");
     expect(probe.getStatus()).toBe("running");
 
-    probe.stop();
+    expect(await probe.stopAndWait()).toBe(true);
     expect(probe.getStatus()).toBe("stopped");
   });
 
@@ -138,6 +139,30 @@ describe("WindowsForegroundProbe", () => {
     // stop 之后触发的 exit 应该保持 stopped，不再重启
     const handleExit = (probe as unknown as { handleProcessExit: (code: number) => void }).handleProcessExit.bind(probe);
     handleExit(0);
+    expect(probe.getStatus()).toBe("stopped");
+  });
+
+  it("stopAndWait 等待 sidecar 的真实 exit 事件", async () => {
+    const probe = new WindowsForegroundProbe({ executablePath: "dummy" });
+    const child = new EventEmitter() as EventEmitter & {
+      exitCode: number | null;
+      signalCode: NodeJS.Signals | null;
+      stdin: { end: () => void };
+      kill: () => boolean;
+    };
+    child.exitCode = null;
+    child.signalCode = null;
+    child.stdin = { end: () => {} };
+    child.kill = () => {
+      queueMicrotask(() => {
+        child.signalCode = "SIGTERM";
+        child.emit("exit", null, "SIGTERM");
+      });
+      return true;
+    };
+    (probe as unknown as { childProcess: typeof child }).childProcess = child;
+
+    await expect(probe.stopAndWait(100)).resolves.toBe(true);
     expect(probe.getStatus()).toBe("stopped");
   });
 });

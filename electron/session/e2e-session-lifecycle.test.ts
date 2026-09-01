@@ -27,6 +27,28 @@ import { mapInspectionToObservationParams } from "../inspection/observation.js";
 import type { SessionSnapshot } from "../../shared/session.js";
 
 describe("阶段 3 E2E 会话生命周期与自动巡查端到端验证", () => {
+  it("验收专用依赖可以注入固定种子和巡查节点", () => {
+    const observedSeeds: number[] = [];
+    const service = new SessionService(() => {}, undefined, undefined, {
+      seedFactory: () => 123456,
+      normalizeSnapshot: (snapshot) => {
+        observedSeeds.push(snapshot.randomState);
+        return { ...snapshot, nextPatrolAtFocusedSecond: 120 };
+      },
+    });
+    const snapshot = service.start({
+      partnerId: "demo.guardian-zero",
+      packVersion: "1.0.0",
+      sceneId: "quiet-observatory",
+      goal: "deterministic acceptance",
+      plannedMinutes: 25,
+    });
+
+    expect(snapshot.nextPatrolAtFocusedSecond).toBe(120);
+    expect(observedSeeds.length).toBeGreaterThan(0);
+    service.dispose();
+  });
+
   it("完成全流程端到端伴学、自动巡查判定、偏航结算与结构化历史记录", async () => {
     // 1. 初始化数据库与安全存储
     const db = new XingbanDatabase(":memory:");

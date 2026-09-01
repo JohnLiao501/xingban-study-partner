@@ -60,6 +60,8 @@ export interface CaptureSourceSummary {
 /** 屏幕捕获 IPC 控制契约 */
 export interface CaptureControllerApi {
   listCaptureSources: () => Promise<CaptureSourceSummary[]>;
+  getCaptureStatus: () => Promise<CaptureStatus>;
+  startCapture: (sourceId: string) => Promise<CaptureStatus>;
   stopCapture: () => Promise<void>;
   onCaptureStatusChanged: (listener: (status: CaptureStatus) => void) => () => void;
   // 截图工作窗口专用通道
@@ -70,6 +72,7 @@ export interface CaptureControllerApi {
   notifyCaptureRendererReady?: () => Promise<void>;
   notifyCaptureStreamReady?: () => Promise<void>;
   notifyCaptureStreamEnded?: () => Promise<void>;
+  notifyCaptureStreamStopped?: () => Promise<void>;
 }
 
 export interface VisionSettingsView {

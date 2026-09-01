@@ -109,6 +109,8 @@ export class ElectronCaptureService implements CaptureService {
   private pendingFrameResolve: ((frame: Uint8Array | null) => void) | null = null;
   private rendererReady = false;
   private rendererReadyWaiters = new Set<(ready: boolean) => void>();
+  private streamStopWaiters = new Set<(stopped: boolean) => void>();
+  private streamStopConfirmed = true;
   private startGeneration = 0;
 
   constructor(
@@ -164,11 +166,13 @@ export class ElectronCaptureService implements CaptureService {
       //    Electron display-media handler 会重新枚举并强制返回当前仍存在的该源，
       //    因此这里不重复调用 desktopCapturer，避免一次无意义的系统捕获初始化。
       this.activeSourceId = sourceId;
+      this.streamStopConfirmed = false;
       win.webContents.send("capture:init-stream");
       this.setStatus("starting");
       return true;
     } catch {
       this.permissionManager.revokeCaptureAuth();
+      this.streamStopConfirmed = true;
       this.setStatus("failed");
       return false;
     }
@@ -184,6 +188,8 @@ export class ElectronCaptureService implements CaptureService {
   handleRendererUnavailable(): void {
     this.rendererReady = false;
     for (const resolve of [...this.rendererReadyWaiters]) resolve(false);
+    this.streamStopConfirmed = true;
+    for (const resolve of [...this.streamStopWaiters]) resolve(true);
   }
 
   /** 截图窗口确认 MediaStream 已建立后才进入 active。 */
@@ -191,6 +197,12 @@ export class ElectronCaptureService implements CaptureService {
     if (this.status === "starting" && this.activeSourceId) {
       this.setStatus("active");
     }
+  }
+
+  /** 截图 renderer 已同步 stop() 全部 MediaStreamTrack 后确认。 */
+  handleStreamStopped(): void {
+    this.streamStopConfirmed = true;
+    for (const resolve of [...this.streamStopWaiters]) resolve(true);
   }
 
   /** 供主进程显示媒体授权回调确认本次异步选源仍属于当前启动流程。 */
@@ -253,6 +265,7 @@ export class ElectronCaptureService implements CaptureService {
 
   /** 接收来自 captureWindow 的流结束通知 */
   handleStreamEnded(): void {
+    this.streamStopConfirmed = true;
     void this.stopCapture();
   }
 
@@ -277,6 +290,32 @@ export class ElectronCaptureService implements CaptureService {
     }
 
     this.setStatus("stopped");
+  }
+
+  /**
+   * 应用退出专用：发送停止命令后等待截图 renderer 的 track.stop() 回执。
+   * 超时返回 false，由外层验收按失败处理；普通会话停止仍保持即时降级语义。
+   */
+  async stopCaptureAndWait(timeoutMs = 2_000): Promise<boolean> {
+    const shouldWait = !this.streamStopConfirmed;
+    if (!shouldWait) {
+      await this.stopCapture();
+      return true;
+    }
+    const acknowledgement = new Promise<boolean>((resolve) => {
+      let settled = false;
+      const finish = (stopped: boolean) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        this.streamStopWaiters.delete(finish);
+        resolve(stopped);
+      };
+      const timer = setTimeout(() => finish(false), timeoutMs);
+      this.streamStopWaiters.add(finish);
+    });
+    await this.stopCapture();
+    return acknowledgement;
   }
 
   getStatus(): CaptureStatus {

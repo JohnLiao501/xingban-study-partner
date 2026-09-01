@@ -165,6 +165,35 @@ describe("ElectronCaptureService", () => {
     expect(sentMessages).toContain("capture:stop-stream");
   });
 
+  it("退出等待截图 renderer 确认全部媒体轨已停止", async () => {
+    const pm = new PermissionManager();
+    let service!: ElectronCaptureService;
+    const win = createMockWindow((channel) => {
+      if (channel === "capture:stop-stream") {
+        queueMicrotask(() => service.handleStreamStopped());
+      }
+    });
+    service = new ElectronCaptureService(() => win, pm, 3000, sourceProvider);
+    service.handleRendererReady();
+    await service.startCapture("screen:1");
+    service.handleStreamReady();
+
+    await expect(service.stopCaptureAndWait(100)).resolves.toBe(true);
+    expect(service.getStatus()).toBe("stopped");
+  });
+
+  it("退出时未收到媒体轨停止回执则失败关闭", async () => {
+    const pm = new PermissionManager();
+    const win = createMockWindow(() => {});
+    const service = new ElectronCaptureService(() => win, pm, 3000, sourceProvider);
+    service.handleRendererReady();
+    await service.startCapture("screen:1");
+    service.handleStreamReady();
+
+    await expect(service.stopCaptureAndWait(5)).resolves.toBe(false);
+    expect(service.getStatus()).toBe("stopped");
+  });
+
   it("等待截图 renderer 明确就绪后才发出初始化消息", async () => {
     const pm = new PermissionManager();
     const sentMessages: string[] = [];

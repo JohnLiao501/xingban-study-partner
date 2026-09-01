@@ -58,6 +58,7 @@ export class WindowsForegroundProbe implements ForegroundProbe {
   private restartCount = 0;
   private isIntentionallyStopped = false;
   private restartTimer: ReturnType<typeof setTimeout> | null = null;
+  private stopPromise: Promise<boolean> | null = null;
 
   private sampleListeners: OnSampleCallback[] = [];
   private statusListeners: OnProbeStatusCallback[] = [];
@@ -82,32 +83,70 @@ export class WindowsForegroundProbe implements ForegroundProbe {
 
     this.isIntentionallyStopped = false;
     this.restartCount = 0;
+    this.stopPromise = null;
     this.spawnProcess();
   }
 
   stop(): void {
+    void this.beginStop();
+  }
+
+  /** 等待当前 sidecar 真正退出；应用关闭与验收清理使用。 */
+  stopAndWait(timeoutMs = 3_000): Promise<boolean> {
+    return this.stopPromise ?? this.beginStop(timeoutMs);
+  }
+
+  private beginStop(timeoutMs = 3_000): Promise<boolean> {
+    if (this.stopPromise) return this.stopPromise;
     this.isIntentionallyStopped = true;
     if (this.restartTimer) {
       clearTimeout(this.restartTimer);
       this.restartTimer = null;
     }
 
-    if (this.childProcess) {
+    const child = this.childProcess;
+    this.childProcess = null;
+    this.stopPromise = new Promise<boolean>((resolve) => {
+      if (!child || child.exitCode !== null || child.signalCode !== null) {
+        resolve(true);
+        return;
+      }
+      let settled = false;
+      const finish = (stopped: boolean) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        child.removeListener("exit", onExit);
+        child.removeListener("error", onError);
+        resolve(stopped);
+      };
+      const onExit = () => finish(true);
+      const onError = () => finish(child.exitCode !== null || child.signalCode !== null);
+      const timer = setTimeout(() => {
+        try {
+          child.kill();
+        } catch {
+          // 超时结果仍按 false 处理。
+        }
+        finish(false);
+      }, timeoutMs);
+      child.once("exit", onExit);
+      child.once("error", onError);
       try {
         // 先尝试关闭 stdin 让 sidecar 优雅退出
-        this.childProcess.stdin?.end();
+        child.stdin?.end();
         // 随后杀死进程确保不残留
-        this.childProcess.kill();
+        child.kill();
       } catch {
-        // 忽略杀死时的错误
+        finish(child.exitCode !== null || child.signalCode !== null);
       }
-      this.childProcess = null;
-    }
+    });
 
     this.sampleListeners = [];
     this.latestSample = null;
     this.lineBuffer = "";
     this.setStatus("stopped");
+    return this.stopPromise;
   }
 
   getLatest(): ForegroundSample | null {

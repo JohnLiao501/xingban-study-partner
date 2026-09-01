@@ -34,6 +34,17 @@ describe("session engine", () => {
     expect(advanceSession(preparing, { type: "prepared" }).phase).toBe("focusing");
   });
 
+  it("keeps the state machine goal limit aligned with the validated 500-character contract", () => {
+    expect(() => createSession({ ...input, goal: "目".repeat(500) }, {
+      sessionId: "goal-500",
+      seed: 7,
+    })).not.toThrow();
+    expect(() => createSession({ ...input, goal: "目".repeat(501) }, {
+      sessionId: "goal-501",
+      seed: 7,
+    })).toThrow("SESSION_INVALID_GOAL");
+  });
+
   it("uses the same patrol plan for the same seed", () => {
     const first = createFocusing(20260829);
     const replay = createFocusing(20260829);

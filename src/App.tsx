@@ -258,6 +258,7 @@ export default function App() {
 
             {session.snapshot ? (
               <SessionPanel
+                acceptancePlan={bootstrap.acceptancePlan}
                 manualInspectionControls={!desktopRuntime}
                 onCompleteFeedback={() => void session.completeFeedback()}
                 onFinish={(mode) => void session.finish(mode)}
@@ -284,6 +285,7 @@ export default function App() {
       </div>
       {setupOpen ? (
         <SessionSetupDialog
+          acceptancePlan={bootstrap.acceptancePlan}
           onCancel={() => setSetupOpen(false)}
           onStart={(input) => {
             setSetupOpen(false);

@@ -15,6 +15,7 @@ export const OBSERVATION_LABELS = ["focused", "uncertain", "distracted"] as cons
 export const SESSION_GRADES = ["S", "A", "B", "C", "D"] as const;
 export const PRIVATE_COMMUNICATION_POLICIES = ["remind", "strict"] as const;
 export const DEFAULT_PRIVATE_COMMUNICATION_POLICY = "remind" as const;
+export const SESSION_FEEDBACK_AUTO_CONTINUE_MS = 5_000;
 
 export type SessionPhase = (typeof SESSION_PHASES)[number];
 export type ObservationLabel = (typeof OBSERVATION_LABELS)[number];

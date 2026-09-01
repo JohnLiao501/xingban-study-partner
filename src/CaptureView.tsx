@@ -149,6 +149,9 @@ export function CaptureView() {
       console.info("[CaptureView] STOP_RECEIVED");
       streamGeneration += 1;
       stopCurrentStream();
+      void api.notifyCaptureStreamStopped?.().catch(() => {
+        console.error("[CaptureView] STREAM_STOP_ACK_FAILED");
+      });
     });
 
     // 监听器全部绑定后再通知主进程。零延迟定时器也避开 React StrictMode

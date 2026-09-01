@@ -121,6 +121,7 @@ export interface BootstrapData {
   manifest: PartnerPackManifestV1;
   assetBaseUrl: string;
   desktopRuntime: boolean;
+  acceptancePlan?: import("./stage3-acceptance.js").Stage3AcceptancePlanView;
 }
 
 export interface PackValidationResult {

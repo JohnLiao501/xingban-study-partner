@@ -107,7 +107,7 @@ export function createSession(
   options: SessionStartOptions,
 ): SessionSnapshot {
   const goal = input.goal.trim();
-  assert(goal.length >= 1 && goal.length <= 120, "SESSION_INVALID_GOAL");
+  assert(goal.length >= 1 && goal.length <= 500, "SESSION_INVALID_GOAL");
   assert(Number.isInteger(input.plannedMinutes), "SESSION_INVALID_DURATION");
   assert(input.plannedMinutes >= 10 && input.plannedMinutes <= 180, "SESSION_INVALID_DURATION");
   assert(Boolean(input.partnerId && input.packVersion && input.sceneId), "SESSION_INVALID_PARTNER");

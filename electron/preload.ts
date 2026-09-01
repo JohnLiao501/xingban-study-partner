@@ -23,6 +23,7 @@ type MainStudyPartnerApi = Omit<StudyPartnerApi,
   | "notifyCaptureRendererReady"
   | "notifyCaptureStreamReady"
   | "notifyCaptureStreamEnded"
+  | "notifyCaptureStreamStopped"
 >;
 
 const mainApi: MainStudyPartnerApi = {
@@ -45,6 +46,8 @@ const mainApi: MainStudyPartnerApi = {
   saveAppRule: (input: SaveAppRuleInput) => ipcRenderer.invoke("rules:save", input) as Promise<AppRule>,
   deleteAppRule: (id: string) => ipcRenderer.invoke("rules:delete", id) as Promise<void>,
   listCaptureSources: () => ipcRenderer.invoke("capture:list-sources") as Promise<any>,
+  getCaptureStatus: () => ipcRenderer.invoke("capture:get-status") as Promise<any>,
+  startCapture: (sourceId: string) => ipcRenderer.invoke("capture:start", sourceId) as Promise<any>,
   stopCapture: () => ipcRenderer.invoke("capture:stop") as Promise<void>,
   onCaptureStatusChanged: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, status: any) => {
@@ -100,6 +103,7 @@ const captureApi = {
   notifyCaptureRendererReady: () => ipcRenderer.invoke("capture:renderer-ready") as Promise<void>,
   notifyCaptureStreamReady: () => ipcRenderer.invoke("capture:stream-ready") as Promise<void>,
   notifyCaptureStreamEnded: () => ipcRenderer.invoke("capture:stream-ended") as Promise<void>,
+  notifyCaptureStreamStopped: () => ipcRenderer.invoke("capture:stream-stopped") as Promise<void>,
 };
 
 const viewArgument = process.argv.find((argument) => argument.startsWith("--xingban-view="));

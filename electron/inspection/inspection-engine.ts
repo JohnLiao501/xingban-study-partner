@@ -22,7 +22,10 @@ import type {
   ObservationReasonCode,
 } from "../../shared/inspection.js";
 import type { ForegroundProbe } from "./foreground-probe.js";
-import type { LocalRuleClassifier } from "./local-rule-classifier.js";
+import type {
+  ClassificationResult,
+  LocalRuleClassifier,
+} from "./local-rule-classifier.js";
 import type { CaptureService } from "../capture/capture-service.js";
 import type { VisionAdapter, VisionAnalysisResponse } from "../vision/vision-adapter.js";
 import { hashWindowTitle } from "./observation.js";
@@ -46,6 +49,11 @@ export interface InspectionEngineOptions {
   onObservation: (result: InspectionResult, confirmedDeviation: boolean) => void;
   /** 二次确认最终不是 distracted 时，将当前巡查安全结束为 uncertain。 */
   onResolvePending?: (sessionId: string, label: "uncertain") => void;
+  /** 验收诊断钩子：只接收结构化前台样本与本地分类，不得记录窗口标题。 */
+  onLocalClassification?: (
+    sample: ForegroundSample | null,
+    result: ClassificationResult,
+  ) => void;
 }
 
 export class InspectionEngine {
@@ -64,6 +72,10 @@ export class InspectionEngine {
   private readonly onConfirmDeviation: (sessionId: string) => void;
   private readonly onObservation: (result: InspectionResult, confirmedDeviation: boolean) => void;
   private readonly onResolvePending: (sessionId: string, label: "uncertain") => void;
+  private readonly onLocalClassification: (
+    sample: ForegroundSample | null,
+    result: ClassificationResult,
+  ) => void;
   private readonly unsubscribeProbeStatus: () => void;
 
   /** 正在等待 15 秒二次确认的任务 */
@@ -91,6 +103,7 @@ export class InspectionEngine {
     this.onConfirmDeviation = options.onConfirmDeviation;
     this.onObservation = options.onObservation;
     this.onResolvePending = options.onResolvePending ?? (() => {});
+    this.onLocalClassification = options.onLocalClassification ?? (() => {});
 
     this.unsubscribeProbeStatus = this.probe.onStatusChange((status) => {
       if (status !== "running") {
@@ -153,6 +166,11 @@ export class InspectionEngine {
 
     // 1. 本地规则优先判定
     const localVerdict = this.classifier.getCurrent(sample, this.rules);
+    try {
+      this.onLocalClassification(sample, localVerdict);
+    } catch {
+      // 诊断输出不得影响真实巡查结果。
+    }
 
     if (localVerdict.verdict === "focused") {
       // 本地命中白名单：绝不截图、绝不调用 AI

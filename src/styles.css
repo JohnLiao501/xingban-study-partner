@@ -673,6 +673,61 @@ input:focus-visible {
   flex-direction: column;
 }
 
+.capture-reauthorize-button {
+  border: 1px solid rgba(96, 165, 250, 0.45);
+  border-radius: 4px;
+  background: transparent;
+  color: #93c5fd;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 2px 8px;
+}
+
+.capture-reauthorize,
+.acceptance-setup-note {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid rgba(96, 165, 250, 0.28);
+  border-radius: 8px;
+  background: rgba(30, 64, 175, 0.12);
+}
+
+.capture-reauthorize {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.capture-reauthorize select {
+  min-width: 0;
+}
+
+.capture-reauthorize__error {
+  color: #fca5a5;
+}
+
+.acceptance-guide {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid rgba(52, 211, 153, 0.3);
+  border-radius: 9px;
+  background: rgba(6, 78, 59, 0.18);
+}
+
+.acceptance-guide > span,
+.acceptance-guide > small,
+.acceptance-setup-note > small {
+  color: var(--color-text-secondary, #94a3b8);
+  font-size: 11px;
+}
+
+.acceptance-guide p,
+.acceptance-setup-note span {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
 .session-panel__header {
   display: flex;
   align-items: flex-start;
@@ -1412,6 +1467,7 @@ input:focus-visible {
   position: fixed;
   z-index: 100;
   display: grid;
+  overflow: hidden;
   padding: 24px;
   background: rgba(2, 8, 17, 0.78);
   backdrop-filter: blur(10px);
@@ -1420,14 +1476,26 @@ input:focus-visible {
 }
 
 .session-dialog {
+  display: flex;
   width: min(460px, 100%);
-  padding: 26px;
+  max-height: calc(100dvh - 48px);
+  padding: 0;
+  overflow: hidden;
   border: 1px solid rgba(109, 183, 255, 0.28);
   border-radius: var(--radius-lg);
   background:
     radial-gradient(circle at 100% 0, rgba(77, 148, 219, 0.17), transparent 34%),
     #0a1829;
   box-shadow: 0 30px 90px rgba(0, 0, 0, 0.58);
+  flex-direction: column;
+}
+
+.session-dialog__body {
+  min-height: 0;
+  padding: 26px 26px 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .session-dialog__eyebrow {
@@ -1578,9 +1646,13 @@ input:focus-visible {
 
 .session-dialog__actions {
   display: flex;
+  flex: none;
   justify-content: flex-end;
-  margin-top: 22px;
+  margin-top: 0;
+  padding: 18px 26px 26px;
+  border-top: 1px solid rgba(109, 183, 255, 0.12);
   gap: 9px;
+  background: #0a1829;
 }
 
 .status-bar {
@@ -1941,11 +2013,19 @@ input:focus-visible {
 
   .session-dialog {
     width: 100%;
-    padding: 22px 18px;
+    max-height: 100dvh;
     border-right: 0;
     border-bottom: 0;
     border-left: 0;
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  }
+
+  .session-dialog__body {
+    padding: 22px 18px 0;
+  }
+
+  .session-dialog__actions {
+    padding: 16px 18px 18px;
   }
 }
 

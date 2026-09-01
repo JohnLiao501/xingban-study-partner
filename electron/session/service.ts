@@ -9,19 +9,28 @@ import type {
   SessionSnapshot,
   StartSessionInput,
 } from "../../shared/session.js";
+import { SESSION_FEEDBACK_AUTO_CONTINUE_MS } from "../../shared/session.js";
 import type { XingbanDatabase } from "../storage/database.js";
 
 const TERMINAL_PHASES = new Set(["completed", "aborted", "interrupted"]);
 const MINIMUM_MANUAL_PATROL_SECOND = 2 * 60;
 
+export interface SessionServiceOptions {
+  seedFactory?: () => number;
+  normalizeSnapshot?: (snapshot: SessionSnapshot) => SessionSnapshot;
+  feedbackAutoContinueMs?: number;
+}
+
 export class SessionService {
   private snapshot: SessionSnapshot | null;
   private readonly timer: NodeJS.Timeout;
+  private feedbackTimer: NodeJS.Timeout | undefined;
 
   constructor(
     private readonly onChanged: (snapshot: SessionSnapshot) => void,
     private readonly persistence?: XingbanDatabase,
     private readonly resolveLevelId: (partnerId: string, totalTrust: number) => string = () => "initial",
+    private readonly options: SessionServiceOptions = {},
   ) {
     this.snapshot = persistence?.loadRecoverableSession() ?? null;
     this.timer = setInterval(() => {
@@ -30,6 +39,7 @@ export class SessionService {
       if (next !== this.snapshot) this.publish(next);
     }, 1_000);
     this.timer.unref();
+    if (this.snapshot) this.syncFeedbackTimer(this.snapshot);
   }
 
   getActive(): SessionSnapshot | null {
@@ -40,7 +50,7 @@ export class SessionService {
     if (this.snapshot && !TERMINAL_PHASES.has(this.snapshot.phase)) {
       throw new Error("SESSION_ALREADY_ACTIVE");
     }
-    const seed = randomBytes(4).readUInt32LE(0);
+    const seed = this.options.seedFactory?.() ?? randomBytes(4).readUInt32LE(0);
     const preparing = createSession(input, { sessionId: randomUUID(), seed });
     return this.publish(advanceSession(preparing, { type: "prepared" }), true);
   }
@@ -84,6 +94,8 @@ export class SessionService {
   }
 
   completeFeedback(sessionId: string): SessionSnapshot {
+    const snapshot = this.requireSession(sessionId);
+    if (snapshot.phase !== "feedback" || snapshot.plannedReached) return snapshot;
     return this.command(sessionId, { type: "complete-feedback" });
   }
 
@@ -97,6 +109,7 @@ export class SessionService {
 
   dispose(): void {
     clearInterval(this.timer);
+    this.clearFeedbackTimer();
     if (this.snapshot && !TERMINAL_PHASES.has(this.snapshot.phase)) {
       this.persistence?.saveSession(this.snapshot);
     }
@@ -117,8 +130,10 @@ export class SessionService {
   }
 
   private publish(snapshot: SessionSnapshot, force = false): SessionSnapshot {
+    snapshot = this.options.normalizeSnapshot?.(snapshot) ?? snapshot;
     const previous = this.snapshot;
     this.snapshot = snapshot;
+    this.syncFeedbackTimer(snapshot);
     const terminal = TERMINAL_PHASES.has(snapshot.phase);
     const shouldCheckpoint = force || terminal || previous?.phase !== snapshot.phase || snapshot.focusedSeconds % 5 === 0;
     if (terminal && snapshot.outcome) {
@@ -131,5 +146,30 @@ export class SessionService {
     }
     this.onChanged(snapshot);
     return snapshot;
+  }
+
+  private syncFeedbackTimer(snapshot: SessionSnapshot): void {
+    this.clearFeedbackTimer();
+    if (snapshot.phase !== "feedback" || snapshot.plannedReached) return;
+
+    const sessionId = snapshot.sessionId;
+    const delayMs = this.options.feedbackAutoContinueMs ?? SESSION_FEEDBACK_AUTO_CONTINUE_MS;
+    this.feedbackTimer = setTimeout(() => {
+      this.feedbackTimer = undefined;
+      const current = this.snapshot;
+      if (
+        current?.sessionId !== sessionId ||
+        current.phase !== "feedback" ||
+        current.plannedReached
+      ) return;
+      this.publish(advanceSession(current, { type: "complete-feedback" }));
+    }, Math.max(0, delayMs));
+    this.feedbackTimer.unref();
+  }
+
+  private clearFeedbackTimer(): void {
+    if (!this.feedbackTimer) return;
+    clearTimeout(this.feedbackTimer);
+    this.feedbackTimer = undefined;
   }
 }

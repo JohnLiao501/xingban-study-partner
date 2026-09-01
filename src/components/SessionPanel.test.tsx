@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { SessionSnapshot } from "../../shared/session";
+import { createStage3AcceptancePlanView, type Stage3AcceptancePlanView } from "../../shared/stage3-acceptance";
 import { SessionPanel } from "./SessionPanel";
 
 function createSnapshot(phase: SessionSnapshot["phase"]): SessionSnapshot {
@@ -31,9 +32,14 @@ function createSnapshot(phase: SessionSnapshot["phase"]): SessionSnapshot {
   };
 }
 
-function renderPanel(phase: SessionSnapshot["phase"], manualInspectionControls: boolean): string {
+function renderPanel(
+  phase: SessionSnapshot["phase"],
+  manualInspectionControls: boolean,
+  acceptancePlan?: Stage3AcceptancePlanView,
+): string {
   return renderToStaticMarkup(
     <SessionPanel
+      acceptancePlan={acceptancePlan}
       manualInspectionControls={manualInspectionControls}
       onCompleteFeedback={() => {}}
       onFinish={() => {}}
@@ -69,5 +75,26 @@ describe("SessionPanel inspection controls", () => {
 
     expect(markup).toContain("桌面版巡查由主进程随机触发");
     expect(markup).not.toContain("模拟一次巡查");
+    expect(markup).toContain("重新授权屏幕");
+  });
+
+  it("隔离验收模式显示固定节点提示而不冒充正式随机巡查", () => {
+    const markup = renderPanel(
+      "focusing",
+      false,
+      createStage3AcceptancePlanView("notepad", "mspaint"),
+    );
+
+    expect(markup).toContain("隔离验收 · 固定节点");
+    expect(markup).toContain("连续禁止规则");
+    expect(markup).toContain("正式模式仍保持随机巡查");
+  });
+
+  it("中途反馈明确告知会自动继续，不要求返回主窗口确认", () => {
+    const markup = renderPanel("feedback", false);
+
+    expect(markup).toContain("5 秒后自动继续");
+    expect(markup).toContain("立即继续");
+    expect(markup).not.toContain(">继续学习<");
   });
 });

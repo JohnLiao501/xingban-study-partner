@@ -10,6 +10,8 @@
     "dev:renderer": "vite --host 127.0.0.1",
     "build": "pnpm run typecheck && pnpm run build:main && pnpm run build:renderer",
     "build:probe": "dotnet publish sidecars/windows-foreground-probe -c Release -o resources/bin",
+    "acceptance:stage3": "pnpm run build && node scripts/run-stage3-acceptance.mjs",
+    "acceptance:stage3:preflight": "pnpm run build && node scripts/preflight-stage3-acceptance.mjs",
     "build:main": "tsc -p tsconfig.electron.json && node scripts/build-preload.js",
 
     "build:renderer": "vite build",

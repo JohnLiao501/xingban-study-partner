@@ -139,9 +139,9 @@ API 密钥明文不进入此表。主进程先用 Electron `safeStorage` 加密�
 
 | 频道 | 输入 | 输出 |
 | --- | --- | --- |
-| `app:get-bootstrap` | 无 | 当前伙伴清单、资源基址和桌面运行标志。 |
+| `app:get-bootstrap` | 无 | 当前伙伴清单、资源基址和桌面运行标志；显式隔离验收模式下附带不含密钥/路径的固定节点提示。 |
 | `partner:list` | 无 | 已安装伙伴摘要。 |
-| `partner:select` | partnerId | 新的启动数据。 |
+| `partner:select` | partnerId | 新的启动数据；显式隔离验收模式下同样附带固定节点提示。 |
 | `partner:import-directory` | 无；主进程打开目录选择器 | 安装结果或取消。 |
 | `partner:get-progress` | partnerId | 当前伙伴独立信赖。 |
 | `overlay:show-preview` | 严格 `OverlayPreviewPayload` | 无。 |
@@ -154,7 +154,9 @@ API 密钥明文不进入此表。主进程先用 Electron `safeStorage` 加密�
 | `history:list` | limit 1～200 | 会话历史摘要。 |
 | `history:list-observations` | sessionId | 脱敏结构化观察列表。 |
 | `rules:list` / `rules:save` / `rules:delete` | 无 / 严格规则对象 / ruleId | 规则结果。 |
-| `capture:list-sources` | 无；仅由用户点击“加载可用屏幕”触发 | 仅显示器类型的脱敏摘要。 |
+| `capture:list-sources` | 无；仅由用户点击“加载可用屏幕”或会话内“重新授权屏幕”触发 | 仅显示器类型的脱敏摘要。 |
+| `capture:get-status` | 无 | 当前 `CaptureStatus`；用于补齐订阅建立前的状态。 |
+| `capture:start` | 用户再次明确选择的 sourceId；仅活动会话可用 | `CaptureStatus`；重新执行一次性授权与源存在性校验。 |
 | `capture:stop` | 无 | 无；学习会话继续。 |
 | `settings:get-vision` | 无 | 不含密钥的 `VisionSettingsView`。 |
 | `settings:save-vision` | 严格设置对象，可短暂含 apiKey/clearApiKey | 不含密钥的设置视图。 |
@@ -167,6 +169,7 @@ API 密钥明文不进入此表。主进程先用 Electron `safeStorage` 加密�
 | --- | --- | --- |
 | `capture:stream-ready` | 无 | 无；主进程从 `starting` 进入 `active`。 |
 | `capture:stream-ended` | 无 | 无；停止并降级。 |
+| `capture:stream-stopped` | 无 | 无；截图窗确认全部 `MediaStreamTrack.stop()` 已执行，应用退出验收等待该回执。 |
 | `capture:send-frame` | JPEG `Uint8Array` 或 null | 无；主进程再校验大小与 JPEG 起止标记。 |
 
 `StartSessionInput`：
@@ -204,7 +207,8 @@ interface StartSessionInput {
 | --- | --- | --- |
 | `PACK_` | `PACK_SCHEMA_INVALID`、`PACK_HASH_MISMATCH` | 阻止安装并展示定位信息。 |
 | `SESSION_` | `SESSION_ALREADY_ACTIVE`、`SESSION_NOT_FOUND`、`SESSION_INVALID_TRANSITION` | 保持现状，不部分写入。 |
-| 捕获状态 | `failed`、`stopped`、`capture_unavailable` | 取消或降级到本地规则；当前实现主要使用状态与原因码而非向 UI 抛出捕获错误。 |
+| 捕获状态 | `failed`、`stopped`、`capture_unavailable`、`CAPTURE_SESSION_INACTIVE` | 取消或降级到本地规则；重新授权只允许活动会话且仍需用户明确选源。 |
+| `ACCEPTANCE_` | `ACCEPTANCE_USER_DATA_OUTSIDE_TEMP`、`ACCEPTANCE_SESSION_CONFIGURATION_INVALID`、`ACCEPTANCE_CONFIGURATION_LOCKED` | 拒绝不在系统临时目录内的数据路径，以及时长、原创 demo、屏幕、AI、私人通讯策略、窗口标题开关或固定规则不符合操作单的配置；验收期间禁止导入/切换其他伙伴或改写固定规则，不得回退到正式用户数据。 |
 | `VISION_` | `VISION_REQUEST_TIMEOUT`、`VISION_HTTP_ERROR_429`、`VISION_RESPONSE_TOO_LARGE` | 编排层把当前结果安全降级为 uncertain。 |
 | `IPC_` | `IPC_INVALID_PAYLOAD`、`IPC_UNAUTHORIZED_SENDER` | 拒绝请求且不扩大窗口能力。 |
 | `DB_` | `DB_MIGRATION_FAILED`、`DB_WRITE_FAILED` | 停止会话变更并保留可恢复检查点。 |

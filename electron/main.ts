@@ -53,17 +53,36 @@ import { SecretStore } from "./security/secret-store.js";
 import { ElectronCaptureService } from "./capture/capture-service.js";
 import { ContentProtectionAcceptanceRunner } from "./acceptance/content-protection-runner.js";
 import { runSafeStorageAcceptance } from "./acceptance/safe-storage-runner.js";
+import {
+  loadStage3AcceptanceRuntimeConfig,
+  normalizeStage3AcceptanceSnapshot,
+  STAGE3_ACCEPTANCE_RULE_IDS,
+  validateStage3AcceptanceStart,
+} from "./acceptance/stage3-environment.js";
+import { Stage3AcceptanceRecorder } from "./acceptance/stage3-recorder.js";
 import { OpenAiVisionAdapter } from "./vision/openai-vision-adapter.js";
 import { WindowsForegroundProbe } from "./inspection/windows-foreground-probe.js";
 import { LocalRuleClassifier } from "./inspection/local-rule-classifier.js";
 import { InspectionEngine } from "./inspection/inspection-engine.js";
 import { mapInspectionToObservationParams } from "./inspection/observation.js";
+import { OverlayVisibilityTimeout } from "./window/overlay-visibility.js";
 import type { SaveVisionSettingsInput, VisionSettingsView } from "../shared/inspection.js";
 import {
   validateSaveAppRuleInput,
   validateSaveVisionSettingsInput,
   validateStartSessionInput,
 } from "../shared/validation.js";
+
+const stage3Acceptance = loadStage3AcceptanceRuntimeConfig();
+if (stage3Acceptance) {
+  app.setPath("userData", stage3Acceptance.userDataPath);
+  app.commandLine.appendSwitch("disable-http-cache");
+}
+const stage3AcceptanceRecorder = stage3Acceptance
+  ? new Stage3AcceptanceRecorder((event) => {
+      console.log(`[Acceptance:Stage3] ${JSON.stringify(event)}`);
+    }, stage3Acceptance.plan)
+  : null;
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -104,11 +123,14 @@ let overlayWindow: BrowserWindow | undefined;
 let captureWindow: BrowserWindow | undefined;
 let tray: Tray | undefined;
 let isQuitting = false;
+let quitAfterShutdown = false;
+let shutdownPromise: Promise<{ captureStopped: boolean; probeStopped: boolean }> | null = null;
 let sessionService: SessionService | undefined;
 let database: XingbanDatabase | undefined;
 let bundledDemo: Awaited<ReturnType<typeof loadBundledDemo>> | undefined;
 let activePartnerManifest: PartnerPackManifestV1 | undefined;
 const partnerDirectoryMap = new Map<string, string>();
+const overlayVisibility = new OverlayVisibilityTimeout(() => overlayWindow?.hide());
 
 function getPartnerDirectory(partnerId: string): string | null {
   if (partnerDirectoryMap.has(partnerId)) {
@@ -306,7 +328,7 @@ function createTray(): Tray {
     },
     {
       label: "隐藏巡查窗",
-      click: () => overlayWindow?.hide(),
+      click: () => overlayVisibility.hideNow(),
     },
     {
       label: "停止屏幕巡查",
@@ -373,6 +395,15 @@ function requireSessionId(value: unknown): string {
 }
 
 function loadVisionConfig(): VisionRuntimeConfig {
+  if (stage3Acceptance) {
+    return {
+      baseUrl: stage3Acceptance.mockBaseUrl,
+      model: "stage3-local-mock",
+      sendWindowTitle: false,
+      visionEnabled: true,
+      timeoutMs: 10000,
+    };
+  }
   const raw = database?.getAppSetting(SETTINGS_KEY_VISION);
   if (!raw) return { ...DEFAULT_VISION_CONFIG };
   try {
@@ -397,6 +428,7 @@ function registerIpc(): void {
       manifest: currentManifest,
       assetBaseUrl: `partner-asset://${currentManifest.partnerId}/`,
       desktopRuntime: true,
+      acceptancePlan: stage3Acceptance?.plan,
     };
   });
 
@@ -440,6 +472,9 @@ function registerIpc(): void {
     if (typeof partnerId !== "string" || partnerId.length < 1 || partnerId.length > 120) {
       throw new Error("IPC_INVALID_PAYLOAD");
     }
+    if (stage3Acceptance && partnerId !== bundledDemo?.partnerId) {
+      throw new Error("ACCEPTANCE_CONFIGURATION_LOCKED");
+    }
 
     const dir = getPartnerDirectory(partnerId);
     if (!dir) {
@@ -458,11 +493,13 @@ function registerIpc(): void {
       manifest,
       assetBaseUrl: `partner-asset://${manifest.partnerId}/`,
       desktopRuntime: true,
+      acceptancePlan: stage3Acceptance?.plan,
     };
   });
 
   ipcMain.handle("partner:import-directory", async (event) => {
     requireMainSender(event);
+    if (stage3Acceptance) throw new Error("ACCEPTANCE_CONFIGURATION_LOCKED");
     const options: Electron.OpenDialogOptions = {
       title: "选择督学伙伴包目录",
       properties: ["openDirectory"],
@@ -507,10 +544,11 @@ function registerIpc(): void {
       send();
     }
     overlayWindow.showInactive();
+    overlayVisibility.schedule();
   });
   ipcMain.handle("overlay:hide", (event) => {
     requireMainSender(event);
-    overlayWindow?.hide();
+    overlayVisibility.hideNow();
   });
   ipcMain.handle("session:get-active", (event) => {
     requireMainSender(event);
@@ -519,6 +557,7 @@ function registerIpc(): void {
   ipcMain.handle("session:start", async (event, rawInput: unknown) => {
     requireMainSender(event);
     const input = validateStartSessionInput(rawInput);
+    if (stage3Acceptance) validateStage3AcceptanceStart(input);
 
     // 会话真相先由主进程建立；捕获或探针失败只降级巡查，不回滚学习会话。
     const snapshot = sessionService?.start(input);
@@ -558,12 +597,19 @@ function registerIpc(): void {
         visionAdapter,
         onConfirmDeviation: (id) => resolveActivePatrol(id, "distracted"),
         onResolvePending: (id, label) => resolveActivePatrol(id, label),
+        onLocalClassification: (sample, result) => {
+          stage3AcceptanceRecorder?.recordLocalClassification(
+            sample?.processName ?? null,
+            result,
+          );
+        },
         onObservation: (result, confirmed) => {
           if (database) {
             database.recordStructuredObservation(
               mapInspectionToObservationParams(snapshot.sessionId, result, confirmed),
             );
           }
+          stage3AcceptanceRecorder?.recordObservation(result, confirmed);
         },
       });
     }
@@ -637,11 +683,13 @@ function registerIpc(): void {
   });
   ipcMain.handle("rules:save", (event, rawInput: unknown) => {
     requireMainSender(event);
+    if (stage3Acceptance) throw new Error("ACCEPTANCE_CONFIGURATION_LOCKED");
     const input: SaveAppRuleInput = validateSaveAppRuleInput(rawInput);
     return database?.saveAppRule(input);
   });
   ipcMain.handle("rules:delete", (event, id: unknown) => {
     requireMainSender(event);
+    if (stage3Acceptance) throw new Error("ACCEPTANCE_CONFIGURATION_LOCKED");
     if (typeof id !== "string" || id.length < 1 || id.length > 100) {
       throw new Error("IPC_INVALID_PAYLOAD");
     }
@@ -650,6 +698,24 @@ function registerIpc(): void {
   ipcMain.handle("capture:list-sources", async (event) => {
     requireMainSender(event);
     return captureService ? await captureService.listSources() : [];
+  });
+  ipcMain.handle("capture:get-status", (event) => {
+    requireMainSender(event);
+    return captureService?.getStatus() ?? "inactive";
+  });
+  ipcMain.handle("capture:start", async (event, sourceId: unknown) => {
+    requireMainSender(event);
+    const active = sessionService?.getActive();
+    if (!active || ["completed", "aborted", "interrupted"].includes(active.phase)) {
+      throw new Error("CAPTURE_SESSION_INACTIVE");
+    }
+    if (typeof sourceId !== "string" || sourceId.length < 1 || sourceId.length > 200) {
+      throw new Error("IPC_INVALID_PAYLOAD");
+    }
+    if (!captureService) throw new Error("CAPTURE_UNAVAILABLE");
+    inspectionEngine?.cancelPendingConfirmation(true);
+    await captureService.startCapture(sourceId);
+    return captureService.getStatus();
   });
   ipcMain.handle("capture:stop", async (event) => {
     requireMainSender(event);
@@ -685,13 +751,17 @@ function registerIpc(): void {
     inspectionEngine?.cancelPendingConfirmation(true);
     captureService?.handleStreamEnded();
   });
+  ipcMain.handle("capture:stream-stopped", (event) => {
+    requireCaptureSender(event);
+    captureService?.handleStreamStopped();
+  });
   ipcMain.handle("settings:get-vision", (event): VisionSettingsView => {
     requireMainSender(event);
     const savedConfig = loadVisionConfig();
     return {
       baseUrl: savedConfig.baseUrl,
       model: savedConfig.model,
-      apiKeyConfigured: secretStore?.hasApiKey() ?? false,
+      apiKeyConfigured: stage3Acceptance ? true : (secretStore?.hasApiKey() ?? false),
       sendWindowTitle: savedConfig.sendWindowTitle,
       visionEnabled: savedConfig.visionEnabled,
       timeoutMs: savedConfig.timeoutMs,
@@ -701,6 +771,17 @@ function registerIpc(): void {
     requireMainSender(event);
     if (!database || !secretStore) throw new Error("DB_NOT_INITIALIZED");
     const input: SaveVisionSettingsInput = validateSaveVisionSettingsInput(rawInput);
+
+    if (stage3Acceptance) {
+      return {
+        baseUrl: stage3Acceptance.mockBaseUrl,
+        model: "stage3-local-mock",
+        apiKeyConfigured: true,
+        sendWindowTitle: false,
+        visionEnabled: true,
+        timeoutMs: 10000,
+      };
+    }
 
     if (input.clearApiKey) {
       secretStore.clearApiKey();
@@ -872,6 +953,22 @@ if (!gotTheLock) {
   database = new XingbanDatabase(path.join(app.getPath("userData"), "xingban.sqlite3"));
   secretStore = new SecretStore(database);
   void runSafeStorageAcceptance(app.getPath("temp"));
+  if (stage3Acceptance) {
+    database.saveAppRule({
+      id: STAGE3_ACCEPTANCE_RULE_IDS.allow,
+      matchType: "process",
+      pattern: stage3Acceptance.plan.allowProcessName,
+      decision: "allow",
+      enabled: true,
+    });
+    database.saveAppRule({
+      id: STAGE3_ACCEPTANCE_RULE_IDS.block,
+      matchType: "process",
+      pattern: stage3Acceptance.plan.blockProcessName,
+      decision: "block",
+      enabled: true,
+    });
+  }
 
   protocol.handle("partner-asset", (request) => {
     try {
@@ -957,12 +1054,13 @@ if (!gotTheLock) {
     baseUrl: initialVision.baseUrl,
     model: initialVision.model,
     timeoutMs: initialVision.timeoutMs,
-    getApiKey: () => secretStore?.getApiKey() ?? null,
+    getApiKey: () => stage3Acceptance?.mockApiToken ?? secretStore?.getApiKey() ?? null,
   });
 
   foregroundProbe = new WindowsForegroundProbe();
 
   sessionService = new SessionService((snapshot) => {
+    stage3AcceptanceRecorder?.recordSnapshot(snapshot);
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("session:changed", snapshot);
     }
@@ -993,7 +1091,10 @@ if (!gotTheLock) {
       .filter((level) => level.minimumTrust <= totalTrust)
       .sort((left, right) => right.minimumTrust - left.minimumTrust);
     return eligible[0]?.id ?? currentManifest.relationshipLevels[0]?.id ?? "initial";
-  });
+  }, stage3Acceptance ? {
+    seedFactory: () => stage3Acceptance.seed,
+    normalizeSnapshot: (snapshot) => normalizeStage3AcceptanceSnapshot(snapshot, stage3Acceptance.plan),
+  } : {});
 
   registerIpc();
   mainWindow = createMainWindow();
@@ -1005,6 +1106,7 @@ if (!gotTheLock) {
     console.log('[Acceptance:ContentProtection] {"outcome":"armed","status":"inactive"}');
   }
   captureService.onStatusChange((status) => {
+    stage3AcceptanceRecorder?.recordCaptureStatus(status);
     if (contentProtectionAcceptance.isEnabled()) {
       console.log(`[Acceptance:ContentProtection] ${JSON.stringify({ outcome: "status", status })}`);
     }
@@ -1034,14 +1136,51 @@ app.on("activate", () => {
   mainWindow.show();
 });
 
-app.on("before-quit", () => {
+async function shutdownApplicationResources(): Promise<{
+  captureStopped: boolean;
+  probeStopped: boolean;
+}> {
+  if (shutdownPromise) return shutdownPromise;
+  shutdownPromise = (async () => {
+    stage3AcceptanceRecorder?.finalize();
+    overlayVisibility.cancel();
+    inspectionEngine?.dispose();
+    inspectionEngine = null;
+
+    const [captureStopped, probeStopped] = await Promise.all([
+      captureService?.stopCaptureAndWait().catch(() => false) ?? Promise.resolve(true),
+      foregroundProbe?.stopAndWait().catch(() => false) ?? Promise.resolve(true),
+    ]);
+
+    sessionService?.dispose();
+    sessionService = undefined;
+    try {
+      database?.close();
+    } finally {
+      database = undefined;
+    }
+    tray?.destroy();
+    tray = undefined;
+    if (stage3Acceptance) {
+      console.log(`[Acceptance:Stage3:Shutdown] ${JSON.stringify({
+        captureStopped,
+        probeStopped,
+        pass: captureStopped && probeStopped,
+      })}`);
+    }
+    return { captureStopped, probeStopped };
+  })();
+  return shutdownPromise;
+}
+
+app.on("before-quit", (event) => {
   isQuitting = true;
-  inspectionEngine?.dispose();
-  inspectionEngine = null;
-  foregroundProbe?.stop();
-  void captureService?.stopCapture();
-  sessionService?.dispose();
-  database?.close();
+  if (quitAfterShutdown) return;
+  event.preventDefault();
+  void shutdownApplicationResources().finally(() => {
+    quitAfterShutdown = true;
+    app.quit();
+  });
 });
 
 app.on("window-all-closed", () => {

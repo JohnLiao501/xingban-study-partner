@@ -4,11 +4,16 @@ import {
   remainingFocusSeconds,
 } from "../../shared/session-engine";
 import type { ObservationLabel, SessionFinishMode, SessionSnapshot } from "../../shared/session";
-import type { CaptureStatus } from "../../shared/inspection";
+import type { CaptureSourceSummary, CaptureStatus } from "../../shared/inspection";
+import {
+  getStage3AcceptanceInstruction,
+  type Stage3AcceptancePlanView,
+} from "../../shared/stage3-acceptance";
 
 interface SessionPanelProps {
   snapshot: SessionSnapshot;
   manualInspectionControls: boolean;
+  acceptancePlan?: Stage3AcceptancePlanView;
   onCompleteFeedback: () => void;
   onFinish: (mode: SessionFinishMode) => void;
   onNewSession: () => void;
@@ -40,6 +45,7 @@ function formatDuration(seconds: number): string {
 export function SessionPanel({
   snapshot,
   manualInspectionControls,
+  acceptancePlan,
   onCompleteFeedback,
   onFinish,
   onNewSession,
@@ -57,18 +63,71 @@ export function SessionPanel({
   const isTerminal = Boolean(snapshot.outcome);
 
   const [captureStatus, setCaptureStatus] = useState<CaptureStatus>("inactive");
+  const [captureSources, setCaptureSources] = useState<CaptureSourceSummary[]>([]);
+  const [selectedSourceId, setSelectedSourceId] = useState("");
+  const [reauthorizing, setReauthorizing] = useState(false);
+  const [sourceLoading, setSourceLoading] = useState(false);
+  const [captureError, setCaptureError] = useState<string>();
 
   useEffect(() => {
     const api = window.studyPartner;
     if (!api?.onCaptureStatusChanged) return;
+    void api.getCaptureStatus().then(setCaptureStatus).catch(() => {});
     return api.onCaptureStatusChanged((status) => {
       setCaptureStatus(status);
+      if (status === "active") {
+        setReauthorizing(false);
+        setCaptureError(undefined);
+      }
     });
   }, []);
 
   const handleStopCapture = () => {
     void window.studyPartner?.stopCapture();
   };
+
+  const loadSourcesForReauthorization = async () => {
+    const api = window.studyPartner;
+    if (!api) return;
+    setSourceLoading(true);
+    setCaptureError(undefined);
+    try {
+      const sources = await api.listCaptureSources();
+      setCaptureSources(sources);
+      setSelectedSourceId("");
+      setReauthorizing(true);
+      if (sources.length === 0) setCaptureError("未发现可用显示器；会话继续使用本地规则");
+    } catch {
+      setCaptureError("读取屏幕列表失败；会话继续且不会因未知结果受罚");
+    } finally {
+      setSourceLoading(false);
+    }
+  };
+
+  const startReauthorizedCapture = async () => {
+    const api = window.studyPartner;
+    if (!api || !selectedSourceId) return;
+    setSourceLoading(true);
+    setCaptureError(undefined);
+    try {
+      setCaptureStatus(await api.startCapture(selectedSourceId));
+    } catch {
+      setCaptureError("重新授权失败；会话继续使用本地规则");
+    } finally {
+      setSourceLoading(false);
+    }
+  };
+
+  const acceptanceInstruction = acceptancePlan
+    ? getStage3AcceptanceInstruction(
+        acceptancePlan,
+        snapshot.focusedSeconds,
+        snapshot.patrolCount,
+        snapshot.phase,
+        snapshot.paused,
+        captureStatus,
+      )
+    : null;
 
   return (
     <aside className="session-panel" aria-label="当前学习会话">
@@ -100,8 +159,50 @@ export function SessionPanel({
           >
             停止屏幕共享
           </button>
+        ) : !manualInspectionControls && !isTerminal ? (
+          <button
+            className="capture-reauthorize-button"
+            disabled={sourceLoading}
+            onClick={() => void loadSourcesForReauthorization()}
+            type="button"
+          >
+            {sourceLoading ? "正在读取…" : "重新授权屏幕"}
+          </button>
         ) : null}
       </div>
+
+      {reauthorizing ? (
+        <div className="capture-reauthorize" role="group" aria-label="重新授权屏幕巡查">
+          <select onChange={(event) => setSelectedSourceId(event.target.value)} value={selectedSourceId}>
+            <option value="">请选择要重新授权的屏幕</option>
+            {captureSources.map((source) => (
+              <option key={source.id} value={source.id}>{source.name || source.id}</option>
+            ))}
+          </select>
+          <button
+            className="button button--secondary"
+            disabled={!selectedSourceId || sourceLoading}
+            onClick={() => void startReauthorizedCapture()}
+            type="button"
+          >
+            授权所选屏幕
+          </button>
+        </div>
+      ) : null}
+      {captureError ? <small className="capture-reauthorize__error" role="status">{captureError}</small> : null}
+
+      {acceptanceInstruction ? (
+        <section className="acceptance-guide" aria-label="阶段 3 验收提示">
+          <span>隔离验收 · 固定节点</span>
+          <strong>{acceptanceInstruction.title}</strong>
+          <p>{acceptanceInstruction.action}</p>
+          <small>
+            {acceptanceInstruction.nextPatrolSecond === null
+              ? "已无后续巡查节点"
+              : `下一巡查节点：${formatDuration(acceptanceInstruction.nextPatrolSecond)}`}
+          </small>
+        </section>
+      ) : null}
 
       {snapshot.recoveredFromCheckpoint ? (
         <div className="session-recovery-banner" role="status">
@@ -162,8 +263,10 @@ export function SessionPanel({
           </div>
         ) : snapshot.phase === "feedback" ? (
           <div className="session-actions-stack">
-            <p>{snapshot.reactionKey === "recovery" ? "已经重新稳定下来，继续保持。" : "反馈已记录，会话仍会继续。"}</p>
-            <button className="button button--primary" onClick={onCompleteFeedback} type="button">继续学习</button>
+            <p>{snapshot.reactionKey === "recovery"
+              ? "已经重新稳定下来；结果会在 5 秒后自动收起并继续计时。"
+              : "反馈已记录；5 秒后自动继续，不必切回本窗口。"}</p>
+            <button className="button button--secondary" onClick={onCompleteFeedback} type="button">立即继续</button>
           </div>
         ) : snapshot.phase === "break" ? (
           <div className="session-actions-stack">
@@ -185,7 +288,9 @@ export function SessionPanel({
             <small>
               {manualInspectionControls
                 ? "模拟巡查会快进至开工后 2 分钟，仅用于浏览器预览。"
-                : "桌面版巡查由主进程随机触发，本地规则拥有最高优先级。"}
+                : acceptancePlan
+                  ? "隔离验收模式使用固定节点；正式模式仍保持随机巡查。"
+                  : "桌面版巡查由主进程随机触发，本地规则拥有最高优先级。"}
             </small>
           </div>
         )}

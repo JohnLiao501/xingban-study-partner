@@ -8,6 +8,7 @@ import type {
   SessionSnapshot,
   StartSessionInput,
 } from "../../shared/session";
+import { SESSION_FEEDBACK_AUTO_CONTINUE_MS } from "../../shared/session";
 
 const TERMINAL_PHASES = new Set(["completed", "aborted", "interrupted"]);
 const MINIMUM_PREVIEW_PATROL_SECOND = 2 * 60;
@@ -62,6 +63,23 @@ export function useSessionController() {
     }, 1_000);
     return () => window.clearInterval(timer);
   }, [desktopApi]);
+
+  useEffect(() => {
+    if (
+      desktopApi ||
+      snapshot?.phase !== "feedback" ||
+      snapshot.plannedReached
+    ) return undefined;
+    const sessionId = snapshot.sessionId;
+    const timer = window.setTimeout(() => {
+      setSnapshot((current) => (
+        current?.sessionId === sessionId &&
+        current.phase === "feedback" &&
+        !current.plannedReached
+      ) ? advanceSession(current, { type: "complete-feedback" }) : current);
+    }, SESSION_FEEDBACK_AUTO_CONTINUE_MS);
+    return () => window.clearTimeout(timer);
+  }, [desktopApi, snapshot?.phase, snapshot?.plannedReached, snapshot?.sessionId]);
 
   const run = async (
     desktopOperation: (() => Promise<SessionSnapshot>) | undefined,
