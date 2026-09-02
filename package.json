@@ -12,6 +12,8 @@
     "build:probe": "dotnet publish sidecars/windows-foreground-probe -c Release -o resources/bin",
     "acceptance:stage3": "pnpm run build && node scripts/run-stage3-acceptance.mjs",
     "acceptance:stage3:preflight": "pnpm run build && node scripts/preflight-stage3-acceptance.mjs",
+    "diagnose:stage3:startup": "pnpm run build && node scripts/diagnose-stage3-startup.mjs",
+    "rehearse:stage3:b1": "pnpm run build && node scripts/rehearse-stage3-b1.mjs",
     "build:main": "tsc -p tsconfig.electron.json && node scripts/build-preload.js",
 
     "build:renderer": "vite build",

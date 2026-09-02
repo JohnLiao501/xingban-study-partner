@@ -67,6 +67,12 @@ pnpm run build
 
 涉及 renderer 时还必须进行浏览器预览的交互、窄屏和控制台检查；涉及 Electron、Windows 探针、屏幕捕获、托盘或 `safeStorage` 时还必须执行真实 `pnpm start` 冒烟测试。
 
+真实 Electron 运行前必须先确认下列环境前提，否则会把环境问题误判为产品缺陷。以下三条根因都表现为 “GPU/renderer `launch-failed`”，完整分析见 `docs/11-stage-3-completion-plan.md` 第 6.4 节：
+
+1. 子进程环境不得包含 `ELECTRON_RUN_AS_NODE`；一旦存在，Electron 会以纯 Node 运行，没有主进程、窗口和 GPU 进程，并抛出 `does not provide an export named '...'`。两个验收 runner 已通过 `buildChildEnvironment()` 自动剔除，手工运行请先 `env -u ELECTRON_RUN_AS_NODE`。
+2. 必须在非沙箱、真实桌面会话中执行；沙箱会反复杀死 GPU 进程，导致所有 `loadURL` 返回 `ERR_FAILED (-2)`。
+3. 不得以 `app.disableHardwareAcceleration()`、缩短连续判定时间或改动固定节点来换取表面通过。
+
 真实 Electron 验收后必须独立确认：
 
 - Electron 进程数量为 0；

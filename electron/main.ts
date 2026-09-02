@@ -60,6 +60,15 @@ import {
   validateStage3AcceptanceStart,
 } from "./acceptance/stage3-environment.js";
 import { Stage3AcceptanceRecorder } from "./acceptance/stage3-recorder.js";
+import {
+  Stage3StartupDiagnostics,
+  summarizeGpuInfo,
+  type StartupDiagnosticsEvent,
+} from "./acceptance/startup-diagnostics.js";
+import {
+  shouldExposeStage3UiAutomation,
+  shouldProtectAppWindow,
+} from "./acceptance/window-protection-policy.js";
 import { OpenAiVisionAdapter } from "./vision/openai-vision-adapter.js";
 import { WindowsForegroundProbe } from "./inspection/windows-foreground-probe.js";
 import { LocalRuleClassifier } from "./inspection/local-rule-classifier.js";
@@ -74,6 +83,17 @@ import {
 } from "../shared/validation.js";
 
 const stage3Acceptance = loadStage3AcceptanceRuntimeConfig();
+const stage3B1Rehearsal = Boolean(
+  stage3Acceptance && process.env.XINGBAN_STAGE3_B1_REHEARSAL === "1",
+);
+const stage3B1ContentProtectionDisabled = Boolean(
+  stage3B1Rehearsal && process.env.XINGBAN_STAGE3_B1_DISABLE_CONTENT_PROTECTION === "1",
+);
+const stage3B2ContentProtectionDisabled = Boolean(
+  stage3Acceptance &&
+  !stage3B1Rehearsal &&
+  process.env.XINGBAN_STAGE3_B2_DISABLE_CONTENT_PROTECTION === "1",
+);
 if (stage3Acceptance) {
   app.setPath("userData", stage3Acceptance.userDataPath);
   app.commandLine.appendSwitch("disable-http-cache");
@@ -83,6 +103,25 @@ const stage3AcceptanceRecorder = stage3Acceptance
       console.log(`[Acceptance:Stage3] ${JSON.stringify(event)}`);
     }, stage3Acceptance.plan)
   : null;
+
+// B0 启动诊断：只在隔离验收环境输出结构化进程事件，用于区分主进程失败、
+// renderer launch-failed 与 GPU 子进程故障。正式运行不注册任何额外输出。
+function emitStartupDiagnostics(event: StartupDiagnosticsEvent): void {
+  console.log(`[Acceptance:Startup] ${JSON.stringify(event)}`);
+}
+
+if (stage3Acceptance) {
+  app.on("child-process-gone", (_event, details) => {
+    emitStartupDiagnostics({
+      stage: "child-process-gone",
+      type: details.type,
+      reason: details.reason,
+      exitCode: details.exitCode,
+      serviceName:
+        typeof details.serviceName === "string" ? details.serviceName.slice(0, 64) : null,
+    });
+  });
+}
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -106,6 +145,7 @@ let secretStore: SecretStore | null = null;
 let visionAdapter: OpenAiVisionAdapter | null = null;
 let foregroundProbe: WindowsForegroundProbe | null = null;
 let inspectionEngine: InspectionEngine | null = null;
+let appWindowsProtected = true;
 
 const SETTINGS_KEY_VISION = "vision_settings";
 const DEFAULT_VISION_CONFIG = {
@@ -170,15 +210,40 @@ function hardenWindow(window: BrowserWindow): void {
   });
 }
 
+function resolveAppWindowProtection(focusedSeconds?: number): boolean {
+  return shouldProtectAppWindow({
+    contentProtectionAcceptanceEnabled: contentProtectionAcceptance.isEnabled(),
+    stage3AcceptanceEnabled: Boolean(stage3Acceptance),
+    stage3UiAutomationVisible: shouldExposeStage3UiAutomation({
+      b1ContentProtectionDisabled: stage3B1ContentProtectionDisabled,
+      b2ContentProtectionDisabled: stage3B2ContentProtectionDisabled,
+      focusedSeconds,
+    }),
+  });
+}
+
+function updateAppWindowProtection(focusedSeconds: number): void {
+  const protect = resolveAppWindowProtection(focusedSeconds);
+  if (protect === appWindowsProtected) return;
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setContentProtection(protect);
+  if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.setContentProtection(protect);
+  appWindowsProtected = protect;
+}
+
 async function loadRenderer(window: BrowserWindow, view?: "overlay" | "capture"): Promise<void> {
   const developmentUrl = process.env.VITE_DEV_SERVER_URL;
   if (developmentUrl) {
     const url = new URL(developmentUrl);
     if (view) url.searchParams.set("view", view);
     await window.loadURL(url.toString());
-  } else {
-    await window.loadFile(rendererPath, view ? { query: { view } } : undefined);
+    return;
   }
+  // Electron 44 的 `loadFile()` 不会对非 ASCII 路径做百分号编码；工作区位于含中文的
+  // 目录时全部窗口都会以 ERR_FAILED (-2) 失败（表现为莫名的 renderer/GPU 启动失败）。
+  // 改用 `pathToFileURL()` 生成正确编码的 file:// URL 后加载，行为与 ASCII 路径一致。
+  const fileUrl = pathToFileURL(rendererPath);
+  if (view) fileUrl.searchParams.set("view", view);
+  await window.loadURL(fileUrl.href);
 }
 
 function createMainWindow(): BrowserWindow {
@@ -198,9 +263,9 @@ function createMainWindow(): BrowserWindow {
       additionalArguments: ["--xingban-view=main"],
     },
   });
-  // 验收专场启动时暂时可见，便于用户/自动化完成显式选源；真正取帧前
-  // ContentProtectionAcceptanceRunner 会重新开启保护。正常运行始终开启。
-  window.setContentProtection(!contentProtectionAcceptance.isEnabled());
+  // 隔离验收只在需要 UI 自动化的时段暂时显示；截图工作窗始终保护。
+  appWindowsProtected = resolveAppWindowProtection();
+  window.setContentProtection(appWindowsProtected);
   hardenWindow(window);
   window.webContents.on("did-fail-load", (_event, errorCode, errorDescription) => {
     console.error("[MainWindow] Failed to load renderer:", errorCode, errorDescription);
@@ -245,7 +310,8 @@ function createOverlayWindow(): BrowserWindow {
     },
   });
   window.setAlwaysOnTop(true, "floating");
-  window.setContentProtection(!contentProtectionAcceptance.isEnabled());
+  appWindowsProtected = resolveAppWindowProtection();
+  window.setContentProtection(appWindowsProtected);
   window.setIgnoreMouseEvents(true, { forward: true });
   hardenWindow(window);
   void loadRenderer(window, "overlay");
@@ -610,6 +676,12 @@ function registerIpc(): void {
             );
           }
           stage3AcceptanceRecorder?.recordObservation(result, confirmed);
+          const active = sessionService?.getActive();
+          if (stage3B1Rehearsal && active && active.patrolCount >= 2) {
+            // B1 只跑前两个节点。事件先同步写入 stdout，再从主进程正常退出，
+            // 让 before-quit 完成捕获流、探针、数据库与托盘的关停回执。
+            setImmediate(() => app.quit());
+          }
         },
       });
     }
@@ -1060,6 +1132,7 @@ if (!gotTheLock) {
   foregroundProbe = new WindowsForegroundProbe();
 
   sessionService = new SessionService((snapshot) => {
+    updateAppWindowProtection(snapshot.focusedSeconds);
     stage3AcceptanceRecorder?.recordSnapshot(snapshot);
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("session:changed", snapshot);
@@ -1129,6 +1202,30 @@ if (!gotTheLock) {
   });
 
   tray = createTray();
+
+  if (stage3Acceptance) {
+    const processType = (process as NodeJS.Process & { type?: string }).type ?? null;
+    emitStartupDiagnostics({
+      stage: "runtime",
+      processType,
+      isBrowserProcess: processType === "browser",
+      electronVersion: process.versions.electron ?? null,
+      nodeVersion: process.versions.node ?? null,
+    });
+    void app
+      .getGPUInfo("basic")
+      .then((info) => emitStartupDiagnostics(summarizeGpuInfo(info)))
+      .catch(() => emitStartupDiagnostics({ stage: "gpu-info", available: false }));
+    void new Stage3StartupDiagnostics(emitStartupDiagnostics, () => mainWindow)
+      .run()
+      .catch((error) => {
+        emitStartupDiagnostics({
+          stage: "startup-failed",
+          pass: false,
+          lastError: error instanceof Error ? error.message.slice(0, 120) : "UNKNOWN_STARTUP_ERROR",
+        });
+      });
+  }
 });
 
 app.on("activate", () => {

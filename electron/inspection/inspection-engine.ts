@@ -263,10 +263,26 @@ export class InspectionEngine {
       frameData = null;
     }
 
-    visionResult = enforceVisionDecisionPolicy(
+    const policyResolution = enforceVisionDecisionPolicy(
       visionResult,
       this.privateCommunicationPolicy,
-    ).decision;
+    );
+    visionResult = policyResolution.decision;
+
+    if (policyResolution.adjustment === "private-communication-reminder") {
+      const result: InspectionResult = {
+        label: "uncertain",
+        confidence: visionResult.confidence,
+        reasonCode: visionResult.reasonCode,
+        source: "vision-api",
+        appName,
+        windowTitleHash,
+        latencyMs: Date.now() - startTime,
+        errorCode: null,
+      };
+      this.onObservation(result, false);
+      return result;
+    }
 
     // 4.1 AI 判定为 focused
     if (visionResult.label === "focused" && visionResult.confidence >= 0.7) {

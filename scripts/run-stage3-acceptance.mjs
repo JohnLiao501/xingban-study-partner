@@ -27,6 +27,18 @@ function emitEvidence(label, value) {
   process.stdout.write(`[Acceptance:Stage3:${label}] ${JSON.stringify(value)}\n`);
 }
 
+/**
+ * 子进程环境必须剔除 `ELECTRON_RUN_AS_NODE`。若该变量存在，Electron 可执行文件
+ * 会以纯 Node 运行：没有主进程、没有 `electron` 内建模块、没有窗口与 GPU 进程，
+ * 表现为命名导入 SyntaxError 或莫名的 renderer/GPU `launch-failed`。
+ * 这是 B0 定位到的根因，必须从环境层消除。
+ */
+function buildChildEnvironment(extra) {
+  const environment = { ...process.env, ...extra };
+  delete environment.ELECTRON_RUN_AS_NODE;
+  return environment;
+}
+
 function waitForChildExit(target, timeoutMs) {
   if (!target || target.exitCode !== null || target.signalCode !== null) return Promise.resolve(true);
   return new Promise((resolve) => {
@@ -146,12 +158,12 @@ try {
 
   child = spawn(electronPath, [projectRoot], {
     cwd: projectRoot,
-    env: {
-      ...process.env,
-      XINGBAN_STAGE3_ACCEPTANCE: "1",
-      XINGBAN_ACCEPTANCE_USER_DATA: acceptanceDirectory,
-      XINGBAN_ACCEPTANCE_MOCK_BASE_URL: mockBaseUrl,
-    },
+      env: buildChildEnvironment({
+        XINGBAN_STAGE3_ACCEPTANCE: "1",
+        XINGBAN_STAGE3_B2_DISABLE_CONTENT_PROTECTION: "1",
+        XINGBAN_ACCEPTANCE_USER_DATA: acceptanceDirectory,
+        XINGBAN_ACCEPTANCE_MOCK_BASE_URL: mockBaseUrl,
+      }),
     stdio: ["inherit", "pipe", "pipe"],
     windowsHide: false,
   });

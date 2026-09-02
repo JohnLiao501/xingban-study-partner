@@ -195,6 +195,7 @@ describe("InspectionEngine", () => {
 
     expect(result.label).toBe("uncertain");
     expect(result.reasonCode).toBe("private_communication");
+    expect(result.source).toBe("vision-api");
     expect(engine.hasPendingConfirmation()).toBe(false);
     expect(confirmedDeviations).toHaveLength(0);
     expect(visionAdapter.lastRequest?.privateCommunicationPolicy).toBe("remind");

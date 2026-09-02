@@ -89,6 +89,8 @@ export class LocalRuleClassifier {
   private blockStartedAtMs: number | null = null;
   private lastBlockSampleAtMs: number | null = null;
   private blockIdentity: string | null = null;
+  /** 当前连续段是否已跨过 20 秒阈值；跨过后在同一段内保持 distracted 状态 */
+  private blockConfirmed = false;
   private latestSampleKey: string | null = null;
   private latestRulesKey: string | null = null;
   private latestResult: ClassificationResult = { verdict: "unknown", reason: "probe_unavailable" };
@@ -154,13 +156,19 @@ export class LocalRuleClassifier {
 
       if (sequenceBroken) {
         this.blockStartedAtMs = sampleAtMs;
+        this.blockConfirmed = false;
       }
       this.blockIdentity = currentIdentity;
       this.lastBlockSampleAtMs = sampleAtMs;
 
       const elapsedMs = sampleAtMs - (this.blockStartedAtMs ?? sampleAtMs);
-      if (elapsedMs >= BLOCK_CONFIRM_MS) {
-        this.resetBlockAccumulation();
+      if (this.blockConfirmed || elapsedMs >= BLOCK_CONFIRM_MS) {
+        // 一旦跨过 20 秒阈值，在同一连续段内保持 distracted 状态（锁存），
+        // 直到应用切换、样本断档或规则不再命中。这样巡查节点读到的是"状态"
+        // 而不是"边沿"：此前确认后立即重置会让偏航只在跨越阈值的那一个样本上
+        // 短暂出现，固定巡查节点几乎必然读到重置后的 block_duration_insufficient
+        // （2026-09-01 人工场与 2026-09-02 B1 三次复现的同一缺陷）。
+        this.blockConfirmed = true;
         return this.remember(sample, rules, { verdict: "distracted", reason: "blocked_app" });
       }
 
@@ -192,6 +200,7 @@ export class LocalRuleClassifier {
     this.blockStartedAtMs = null;
     this.lastBlockSampleAtMs = null;
     this.blockIdentity = null;
+    this.blockConfirmed = false;
   }
 
   reset(): void {

@@ -108,15 +108,37 @@ describe("LocalRuleClassifier", () => {
     expect(r3.verdict).toBe("unknown");
   });
 
-  it("确认 distracted 后累计重置", () => {
+  it("确认 distracted 后在同一连续段内保持命中（锁存语义）", () => {
     const rules = [createRule("block", "process", "bilibili")];
     for (const seconds of [0, 5, 10, 15, 20]) {
       classifier.classify(sampleAt("bilibili", seconds), rules);
     }
+    // 跨过 20 秒阈值后，同一连续段内的后续样本必须继续返回 distracted，
+    // 否则固定巡查节点只能碰巧在跨越阈值的同一个样本上读到偏航
+    // （2026-09-01 人工场与 2026-09-02 B1 复现的缺陷）。
     for (const seconds of [25, 30, 35, 40]) {
       const result = classifier.classify(sampleAt("bilibili", seconds), rules);
-      expect(result.verdict).toBe("unknown");
+      expect(result.verdict).toBe("distracted");
+      expect(result.reason).toBe("blocked_app");
     }
+  });
+
+  it("确认 distracted 后切换应用再切回，需要重新累计 20 秒", () => {
+    const rules = [createRule("block", "process", "bilibili")];
+    for (const seconds of [0, 5, 10, 15, 20]) {
+      classifier.classify(sampleAt("bilibili", seconds), rules);
+    }
+    // 切到无规则窗口打断连续段
+    classifier.classify(sampleAt("editor", 25), rules);
+    // 切回同一禁止应用：作为新的连续段重新累计
+    classifier.classify(sampleAt("bilibili", 30), rules);
+    const early = classifier.classify(sampleAt("bilibili", 35), rules);
+    expect(early.verdict).toBe("unknown");
+    expect(early.reason).toBe("block_duration_insufficient");
+    classifier.classify(sampleAt("bilibili", 40), rules);
+    classifier.classify(sampleAt("bilibili", 45), rules);
+    const late = classifier.classify(sampleAt("bilibili", 50), rules);
+    expect(late.verdict).toBe("distracted");
   });
 
   // === 冲突 ===
