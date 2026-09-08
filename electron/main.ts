@@ -28,9 +28,11 @@ import {
   REACTION_KEYS,
   type BootstrapData,
   type InstalledPartnerSummary,
+  type ImportResult,
   type OverlayPreviewPayload,
   type PartnerPackManifestV1,
   type ReactionKey,
+  resolveRelationshipLevel,
 } from "../shared/partner-pack.js";
 import {
   DEFAULT_PRIVATE_COMMUNICATION_POLICY,
@@ -42,10 +44,13 @@ import type { SaveAppRuleInput } from "../shared/rules.js";
 import {
   discoverLocalPacks,
   installPackDirectory,
+  installPackZip,
+  packErrorCode,
   loadBundledDemo,
   loadPackFromDirectory,
+  resolvePackAssetPath,
 } from "./partner-pack/service.js";
-import { isSafePackPath } from "./partner-pack/validator.js";
+import { isValidPartnerId } from "./partner-pack/validator.js";
 import { SessionService } from "./session/service.js";
 import { XingbanDatabase } from "./storage/database.js";
 import { PermissionManager } from "./security/permission-manager.js";
@@ -170,6 +175,9 @@ let database: XingbanDatabase | undefined;
 let bundledDemo: Awaited<ReturnType<typeof loadBundledDemo>> | undefined;
 let activePartnerManifest: PartnerPackManifestV1 | undefined;
 const partnerDirectoryMap = new Map<string, string>();
+let packImportInProgress = false;
+let packInstallTask: Promise<ImportResult> | undefined;
+const packInstallAbort = new AbortController();
 const overlayVisibility = new OverlayVisibilityTimeout(() => overlayWindow?.hide());
 
 function getPartnerDirectory(partnerId: string): string | null {
@@ -460,6 +468,11 @@ function requireSessionId(value: unknown): string {
   return value;
 }
 
+function requirePartnerId(value: unknown): string {
+  if (!isValidPartnerId(value)) throw new Error("IPC_INVALID_PAYLOAD");
+  return value;
+}
+
 function loadVisionConfig(): VisionRuntimeConfig {
   if (stage3Acceptance) {
     return {
@@ -503,7 +516,8 @@ function registerIpc(): void {
     const result: InstalledPartnerSummary[] = [];
     const activeId = activePartnerManifest?.partnerId ?? bundledDemo?.partnerId;
 
-    if (bundledDemo) {
+    const installed = database?.listInstalledPacks() ?? [];
+    if (bundledDemo && !installed.some((pack) => pack.partnerId === bundledDemo?.partnerId)) {
       result.push({
         partnerId: bundledDemo.partnerId,
         packVersion: bundledDemo.packVersion,
@@ -515,7 +529,6 @@ function registerIpc(): void {
       });
     }
 
-    const installed = database?.listInstalledPacks() ?? [];
     for (const pack of installed) {
       if (!result.some((r) => r.partnerId === pack.partnerId)) {
         result.push({
@@ -535,25 +548,28 @@ function registerIpc(): void {
 
   ipcMain.handle("partner:select", async (event, partnerId: unknown): Promise<BootstrapData> => {
     requireMainSender(event);
-    if (typeof partnerId !== "string" || partnerId.length < 1 || partnerId.length > 120) {
-      throw new Error("IPC_INVALID_PAYLOAD");
-    }
-    if (stage3Acceptance && partnerId !== bundledDemo?.partnerId) {
+    if (packImportInProgress) throw new Error("PACK_INSTALL_BUSY");
+    const id = requirePartnerId(partnerId);
+    if (sessionService?.isActive()) throw new Error("SESSION_ACTIVE");
+    if (stage3Acceptance && id !== bundledDemo?.partnerId) {
       throw new Error("ACCEPTANCE_CONFIGURATION_LOCKED");
     }
 
-    const dir = getPartnerDirectory(partnerId);
+    const dir = getPartnerDirectory(id);
     if (!dir) {
       throw new Error("PARTNER_NOT_FOUND");
     }
 
-    const manifest = (bundledDemo && bundledDemo.partnerId === partnerId)
+    const manifest = (bundledDemo && dir === path.join(projectRoot, "examples", "demo-partner"))
       ? bundledDemo
       : await loadPackFromDirectory(dir, schemaPath);
 
+    if (sessionService?.isActive()) throw new Error("SESSION_ACTIVE");
+    if (packImportInProgress) throw new Error("PACK_INSTALL_BUSY");
+
     activePartnerManifest = manifest;
-    partnerDirectoryMap.set(partnerId, dir);
-    database?.setActivePartnerId(partnerId);
+    partnerDirectoryMap.set(id, dir);
+    database?.setActivePartnerId(id);
 
     return {
       manifest,
@@ -563,40 +579,68 @@ function registerIpc(): void {
     };
   });
 
-  ipcMain.handle("partner:import-directory", async (event) => {
+  const importPartnerPack = async (event: IpcMainInvokeEvent, directoryOnly: boolean, args: unknown[]): Promise<ImportResult> => {
     requireMainSender(event);
+    if (args.length) throw new Error("IPC_INVALID_PAYLOAD");
+    if (sessionService?.isActive()) throw new Error("SESSION_ACTIVE");
     if (stage3Acceptance) throw new Error("ACCEPTANCE_CONFIGURATION_LOCKED");
-    const options: Electron.OpenDialogOptions = {
-      title: "选择督学伙伴包目录",
-      properties: ["openDirectory"],
-    };
-    const result = mainWindow
-      ? await dialog.showOpenDialog(mainWindow, options)
-      : await dialog.showOpenDialog(options);
-    if (result.canceled || !result.filePaths[0]) {
-      return { ok: false, errors: [], cancelled: true };
-    }
+    if (packImportInProgress || isQuitting) return { ok: false, errors: ["PACK_INSTALL_BUSY"] };
+    packImportInProgress = true;
+    try {
+      let directory = directoryOnly;
+      if (!directoryOnly) {
+        const choice = await dialog.showMessageBox(mainWindow!, {
+          type: "question", title: "导入伙伴包", message: "选择伙伴包来源",
+          buttons: ["ZIP 文件", "文件夹", "取消"], defaultId: 0, cancelId: 2,
+        });
+        if (choice.response === 2) return { ok: false, errors: [], cancelled: true };
+        directory = choice.response === 1;
+      }
+      const options: Electron.OpenDialogOptions = {
+        title: directory ? "选择督学伙伴包目录" : "选择督学伙伴 ZIP 包",
+        properties: [directory ? "openDirectory" : "openFile"],
+        ...(directory ? {} : { filters: [{ name: "伙伴包 ZIP", extensions: ["zip"] }] }),
+      };
+      const result = mainWindow
+        ? await dialog.showOpenDialog(mainWindow, options)
+        : await dialog.showOpenDialog(options);
+      if (result.canceled || !result.filePaths[0]) {
+        return { ok: false, errors: [], cancelled: true };
+      }
+      if (isQuitting || sessionService?.isActive()) return { ok: false, errors: ["PACK_INSTALL_CANCELLED"] };
 
-    const installRoot = path.join(app.getPath("userData"), "partners");
-    const installResult = await installPackDirectory(result.filePaths[0], installRoot, schemaPath);
-
-    if (installResult.ok && installResult.manifest && installResult.installedPath) {
-      partnerDirectoryMap.set(installResult.manifest.partnerId, installResult.installedPath);
-      database?.saveInstalledPack({
-        partnerId: installResult.manifest.partnerId,
-        packVersion: installResult.manifest.packVersion,
-        displayName: installResult.manifest.displayName,
-        sourceType: installResult.manifest.sourceType,
-        distribution: installResult.manifest.distribution,
-        installPath: installResult.installedPath,
-        manifestHash: "",
-        enabled: true,
-        installedAt: new Date().toISOString(),
+      const installRoot = path.join(app.getPath("userData"), "partners");
+      packInstallTask = (directory ? installPackDirectory : installPackZip)(result.filePaths[0], installRoot, schemaPath, {
+        signal: packInstallAbort.signal,
+        register: ({ manifest, installedPath }) => {
+          if (!database || isQuitting || sessionService?.isActive()) throw new Error("PACK_INSTALL_CANCELLED");
+          database.saveInstalledPack({
+            partnerId: manifest.partnerId,
+            packVersion: manifest.packVersion,
+            displayName: manifest.displayName,
+            sourceType: manifest.sourceType,
+            distribution: manifest.distribution,
+            installPath: installedPath,
+            manifestHash: "",
+            enabled: true,
+            installedAt: new Date().toISOString(),
+          });
+        },
       });
+      const installResult = await packInstallTask;
+      if (installResult.ok && installResult.manifest && installResult.installedPath) {
+        partnerDirectoryMap.set(installResult.manifest.partnerId, installResult.installedPath);
+      }
+      return installResult;
+    } catch (error) {
+      return { ok: false, errors: [packErrorCode(error)] };
+    } finally {
+      packInstallTask = undefined;
+      packImportInProgress = false;
     }
-
-    return installResult;
-  });
+  };
+  ipcMain.handle("partner:import-directory", (event, ...args: unknown[]) => importPartnerPack(event, true, args));
+  ipcMain.handle("partner:import-pack", (event, ...args: unknown[]) => importPartnerPack(event, false, args));
 
 
   ipcMain.handle("overlay:show-preview", async (event, payload: unknown) => {
@@ -622,6 +666,7 @@ function registerIpc(): void {
   });
   ipcMain.handle("session:start", async (event, rawInput: unknown) => {
     requireMainSender(event);
+    if (packImportInProgress) throw new Error("PACK_INSTALL_BUSY");
     const input = validateStartSessionInput(rawInput);
     if (stage3Acceptance) validateStage3AcceptanceStart(input);
 
@@ -739,11 +784,9 @@ function registerIpc(): void {
   });
   ipcMain.handle("partner:get-progress", (event, partnerId: unknown) => {
     requireMainSender(event);
-    if (typeof partnerId !== "string" || partnerId.length < 1 || partnerId.length > 120) {
-      throw new Error("IPC_INVALID_PAYLOAD");
-    }
-    return database?.getPartnerProgress(partnerId) ?? {
-      partnerId,
+    const id = requirePartnerId(partnerId);
+    return database?.getPartnerProgress(id) ?? {
+      partnerId: id,
       totalTrust: 0,
       currentLevelId: "initial",
       lastSessionAt: null,
@@ -1051,18 +1094,18 @@ if (!gotTheLock) {
         relativePath = relativePath.slice(1);
       }
 
+      if (!isValidPartnerId(partnerId)) {
+        return new Response("Forbidden Partner", { status: 403 });
+      }
       const packRoot = getPartnerDirectory(partnerId);
       if (!packRoot) {
         return new Response("Partner Not Found", { status: 404 });
       }
 
-      if (!isSafePackPath(relativePath)) {
-        return new Response("Forbidden Path", { status: 403 });
-      }
-
-      const resolvedRoot = path.resolve(packRoot);
-      const resolvedPath = path.resolve(packRoot, ...relativePath.split("/"));
-      if (!resolvedPath.startsWith(`${resolvedRoot}${path.sep}`)) {
+      let resolvedPath: string;
+      try {
+        resolvedPath = resolvePackAssetPath(packRoot, relativePath);
+      } catch {
         return new Response("Forbidden Path", { status: 403 });
       }
 
@@ -1097,15 +1140,17 @@ if (!gotTheLock) {
 
   // 载入已安装伙伴
   const installedPacks = database.listInstalledPacks();
+  const loadedPartnerIds = new Set<string>();
   for (const pack of installedPacks) {
-    if (!partnerDirectoryMap.has(pack.partnerId)) {
+    if (!loadedPartnerIds.has(pack.partnerId)) {
       partnerDirectoryMap.set(pack.partnerId, pack.installPath);
+      loadedPartnerIds.add(pack.partnerId);
     }
   }
 
   // 恢复活跃伙伴
   const savedActiveId = database.getActivePartnerId();
-  if (savedActiveId && savedActiveId !== bundledDemo?.partnerId) {
+  if (savedActiveId) {
     const packDir = getPartnerDirectory(savedActiveId);
     if (packDir) {
       try {
@@ -1160,10 +1205,7 @@ if (!gotTheLock) {
       ? activePartnerManifest
       : (bundledDemo?.partnerId === partnerId ? bundledDemo : undefined);
     if (!currentManifest) return "initial";
-    const eligible = currentManifest.relationshipLevels
-      .filter((level) => level.minimumTrust <= totalTrust)
-      .sort((left, right) => right.minimumTrust - left.minimumTrust);
-    return eligible[0]?.id ?? currentManifest.relationshipLevels[0]?.id ?? "initial";
+    return resolveRelationshipLevel(currentManifest.relationshipLevels, totalTrust)?.id ?? "initial";
   }, stage3Acceptance ? {
     seedFactory: () => stage3Acceptance.seed,
     normalizeSnapshot: (snapshot) => normalizeStage3AcceptanceSnapshot(snapshot, stage3Acceptance.plan),
@@ -1239,6 +1281,8 @@ async function shutdownApplicationResources(): Promise<{
 }> {
   if (shutdownPromise) return shutdownPromise;
   shutdownPromise = (async () => {
+    packInstallAbort.abort();
+    await packInstallTask?.catch(() => {});
     stage3AcceptanceRecorder?.finalize();
     overlayVisibility.cancel();
     inspectionEngine?.dispose();

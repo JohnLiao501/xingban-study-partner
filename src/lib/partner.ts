@@ -17,10 +17,17 @@ export function findReactionPreview(
   manifest: PartnerPackManifestV1,
   sceneId: string,
   reactionKey: ReactionKey,
+  totalTrust = 0,
 ): ReactionPreview | undefined {
   const scene = manifest.sceneVariants.find((candidate) => candidate.id === sceneId);
-  const variant = scene?.reactions[reactionKey]?.find((candidate) => candidate.minimumTrust === 0)
-    ?? scene?.reactions[reactionKey]?.[0];
+  const variants = scene?.reactions[reactionKey] ?? [];
+  // ponytail: N1 预览确定性选择最高已解锁门槛；正式轮换需要时再加入权重与冷却状态。
+  let variant = variants.find((candidate) => candidate.minimumTrust === 0);
+  for (const candidate of variants) {
+    if (candidate.minimumTrust <= totalTrust && candidate.minimumTrust >= (variant?.minimumTrust ?? 0)) {
+      variant = candidate;
+    }
+  }
   if (!variant) return undefined;
 
   const video = manifest.mediaAssets.find(
@@ -39,7 +46,7 @@ export function findReactionPreview(
   };
 }
 
-export function resolveAssetUrl(filePath: string, baseUrl?: string): string {
+export function resolveAssetUrl(filePath: string, baseUrl?: string, packVersion?: string): string {
   if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(filePath)) {
     return filePath;
   }
@@ -51,7 +58,9 @@ export function resolveAssetUrl(filePath: string, baseUrl?: string): string {
       base = window.location.href;
     }
   }
-  return new URL(filePath, base.endsWith("/") ? base : `${base}/`).href;
+  const url = new URL(filePath, base.endsWith("/") ? base : `${base}/`);
+  if (packVersion) url.searchParams.set("v", packVersion);
+  return url.href;
 }
 
 

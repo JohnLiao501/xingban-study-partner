@@ -10,10 +10,11 @@ interface MediaStageProps {
   preview: ReactionPreview;
   activityLabel?: string;
   assetBaseUrl?: string;
+  packVersion?: string;
   onShowOverlay: () => void;
 }
 
-export function MediaStage({ activityLabel, assetBaseUrl, coverPath, partnerName, preview, onShowOverlay }: MediaStageProps) {
+export function MediaStage({ activityLabel, assetBaseUrl, packVersion, coverPath, partnerName, preview, onShowOverlay }: MediaStageProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(true);
   const [isMuted, setIsMuted] = useState(true);
@@ -21,8 +22,8 @@ export function MediaStage({ activityLabel, assetBaseUrl, coverPath, partnerName
   const [duration, setDuration] = useState(preview.video.durationMs ? preview.video.durationMs / 1000 : 0);
   const [mediaFailed, setMediaFailed] = useState(false);
 
-  const videoUrl = resolveAssetUrl(preview.video.filePath, assetBaseUrl);
-  const coverUrl = resolveAssetUrl(coverPath, assetBaseUrl);
+  const videoUrl = resolveAssetUrl(preview.video.filePath, assetBaseUrl, packVersion);
+  const coverUrl = resolveAssetUrl(coverPath, assetBaseUrl, packVersion);
 
 
   useEffect(() => {
@@ -30,7 +31,7 @@ export function MediaStage({ activityLabel, assetBaseUrl, coverPath, partnerName
     setCurrentTime(0);
     setDuration(preview.video.durationMs ? preview.video.durationMs / 1000 : 0);
     setIsPlaying(true);
-  }, [preview.variantId, preview.video.durationMs]);
+  }, [preview.variantId, preview.video.durationMs, videoUrl]);
 
   const togglePlayback = async () => {
     const video = videoRef.current;

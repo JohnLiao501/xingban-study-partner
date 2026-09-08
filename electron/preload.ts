@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import type {
   BootstrapData,
   ImportResult,
+  InstalledPartnerSummary,
   OverlayPreviewPayload,
   StudyPartnerApi,
 } from "../shared/partner-pack.js";
@@ -29,7 +30,8 @@ type MainStudyPartnerApi = Omit<StudyPartnerApi,
 const mainApi: MainStudyPartnerApi = {
   getBootstrapData: () => ipcRenderer.invoke("app:get-bootstrap") as Promise<BootstrapData>,
   importPartnerDirectory: () => ipcRenderer.invoke("partner:import-directory") as Promise<ImportResult>,
-  listInstalledPartners: () => ipcRenderer.invoke("partner:list") as Promise<any>,
+  importPartnerPack: () => ipcRenderer.invoke("partner:import-pack") as Promise<ImportResult>,
+  listInstalledPartners: () => ipcRenderer.invoke("partner:list") as Promise<InstalledPartnerSummary[]>,
   selectPartner: (partnerId: string) => ipcRenderer.invoke("partner:select", partnerId) as Promise<BootstrapData>,
   showOverlayPreview: (payload) => ipcRenderer.invoke("overlay:show-preview", payload) as Promise<void>,
   hideOverlay: () => ipcRenderer.invoke("overlay:hide") as Promise<void>,

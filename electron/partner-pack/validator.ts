@@ -6,7 +6,16 @@ import {
 } from "../../shared/partner-pack.js";
 
 const SAFE_RELATIVE_PATH = /^[A-Za-z0-9_][A-Za-z0-9._/-]*$/;
+const PARTNER_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const ALLOWED_EXTENSIONS = new Set([".webp", ".mp4", ".ogg"]);
+export const PACK_LIMITS = {
+  archiveBytes: 512 * 1024 * 1024,
+  totalBytes: 1024 * 1024 * 1024,
+  fileBytes: 256 * 1024 * 1024,
+  manifestBytes: 1024 * 1024,
+  entries: 2048,
+  timeoutMs: 120_000,
+} as const;
 
 function formatSchemaError(error: ErrorObject): string {
   const location = error.instancePath || "/";
@@ -32,12 +41,26 @@ export function compareVersions(left: string, right: string): number {
 }
 
 export function isSafePackPath(filePath: string): boolean {
-  if (!SAFE_RELATIVE_PATH.test(filePath)) return false;
+  if (filePath.length > 200 || !SAFE_RELATIVE_PATH.test(filePath)) return false;
   if (filePath.includes("\\") || filePath.startsWith("/") || /^[A-Za-z]:/.test(filePath)) {
     return false;
   }
   const segments = filePath.split("/");
-  return segments.every((segment) => segment !== "" && segment !== "." && segment !== "..");
+  return segments.length <= 16 && segments.every((segment) =>
+    segment !== "" && segment !== "." && segment !== ".." && !segment.endsWith(".") &&
+    !/^(con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\.|$)/i.test(segment));
+}
+
+export function isAllowedPackEntry(filePath: string, directory = false): boolean {
+  if (!isSafePackPath(filePath)) return false;
+  return directory
+    ? filePath === "assets" || filePath.startsWith("assets/")
+    : filePath === "manifest.json" ||
+      (filePath.startsWith("assets/") && ALLOWED_EXTENSIONS.has(extensionOf(filePath)));
+}
+
+export function isValidPartnerId(value: unknown): value is string {
+  return typeof value === "string" && value.length <= 80 && PARTNER_ID.test(value);
 }
 
 function extensionOf(filePath: string): string {
@@ -153,6 +176,9 @@ export function validatePartnerManifest(
   }
 
   const errors = validateSemanticLinks(candidate);
+  if (!isSafePackPath(candidate.partnerId) || !isSafePackPath(candidate.packVersion)) {
+    errors.push("PACK_PATH_UNSAFE");
+  }
   const versionComparison = compareVersions(candidate.minimumAppVersion, currentAppVersion);
   if (!Number.isFinite(versionComparison) || versionComparison > 0) {
     errors.push(

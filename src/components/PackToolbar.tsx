@@ -7,6 +7,7 @@ interface PackToolbarProps {
   sceneId: string;
   desktopRuntime: boolean;
   sessionActive: boolean;
+  importing?: boolean;
   onPartnerChange?: (partnerId: string) => void;
   onSceneChange: (sceneId: string) => void;
   onImport: () => void;
@@ -19,6 +20,7 @@ export function PackToolbar({
   sceneId,
   desktopRuntime,
   sessionActive,
+  importing = false,
   onPartnerChange,
   onSceneChange,
   onImport,
@@ -30,7 +32,7 @@ export function PackToolbar({
         <span>伙伴</span>
         <select
           aria-label="选择伙伴"
-          disabled={sessionActive || !onPartnerChange || (installedPartners !== undefined && installedPartners.length <= 1)}
+          disabled={sessionActive || importing || !onPartnerChange || (installedPartners !== undefined && installedPartners.length <= 1)}
           onChange={(event) => onPartnerChange?.(event.target.value)}
           value={manifest.partnerId}
         >
@@ -51,6 +53,7 @@ export function PackToolbar({
         <span>场景</span>
         <select
           aria-label="选择场景"
+          disabled={sessionActive || importing}
           onChange={(event) => onSceneChange(event.target.value)}
           value={sceneId}
         >
@@ -60,18 +63,19 @@ export function PackToolbar({
         </select>
       </label>
       <div className="pack-toolbar__actions">
-        <button className="button button--primary" disabled={sessionActive} onClick={onStart} type="button">
+        <button className="button button--primary" disabled={sessionActive || importing} onClick={onStart} type="button">
           <Icon name="play" size={17} />
           {sessionActive ? "学习进行中" : "开始学习"}
         </button>
         <button
           className="button button--secondary"
+          disabled={sessionActive || importing}
           onClick={onImport}
-          title={desktopRuntime ? "选择伙伴包目录" : "请在 Electron 桌面版使用"}
+          title={sessionActive ? "请先结束当前学习会话" : desktopRuntime ? "选择 ZIP 文件或伙伴包目录" : "请在 Electron 桌面版使用"}
           type="button"
         >
           <Icon name="import" size={18} />
-          导入伙伴包
+          {importing ? "正在导入…" : "导入伙伴包"}
         </button>
       </div>
     </section>

@@ -46,6 +46,10 @@ export class SessionService {
     return this.snapshot;
   }
 
+  isActive(): boolean {
+    return Boolean(this.snapshot && !TERMINAL_PHASES.has(this.snapshot.phase));
+  }
+
   start(input: StartSessionInput): SessionSnapshot {
     if (this.snapshot && !TERMINAL_PHASES.has(this.snapshot.phase)) {
       throw new Error("SESSION_ALREADY_ACTIVE");

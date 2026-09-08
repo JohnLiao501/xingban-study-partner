@@ -15,7 +15,6 @@
     "diagnose:stage3:startup": "pnpm run build && node scripts/diagnose-stage3-startup.mjs",
     "rehearse:stage3:b1": "pnpm run build && node scripts/rehearse-stage3-b1.mjs",
     "build:main": "tsc -p tsconfig.electron.json && node scripts/build-preload.js",
-
     "build:renderer": "vite build",
     "typecheck": "tsc -p tsconfig.renderer.json --noEmit && tsc -p tsconfig.electron.json --noEmit",
     "test": "vitest run",
@@ -25,12 +24,14 @@
   "dependencies": {
     "ajv": "8.20.0",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "yauzl": "3.4.0"
   },
   "devDependencies": {
     "@types/node": "24.13.3",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.5",
+    "@types/yauzl": "3.4.0",
     "@vitejs/plugin-react": "6.1.0",
     "electron": "44.0.0",
     "typescript": "7.0.2",

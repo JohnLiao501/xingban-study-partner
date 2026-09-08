@@ -1,10 +1,16 @@
 # 星伴：多督学伙伴 AI 伴学
 
+> **Xingban Study Partner** — a local-first AI study-companion app for Windows (Electron + React + TypeScript). It observes the foreground app on an unpredictable patrol schedule, judges focus with local rules first, and only sends a single low-resolution frame to a multimodal AI when rules are uncertain and the user has explicitly opted in. Privacy-first by design: frames live in memory only and never touch disk, and companion "partner packs" are declarative JSON + media with zero code execution.
+
 这是一个面向 Windows 的本地优先 AI 伴学项目。应用通过随机巡查、低频屏幕判定、有限失误与伙伴信赖成长，帮助用户在其他学习软件中保持专注。
 
 项目采用“底层程序 + 督学伙伴包”的分层设计：程序只认识通用的 `Partner`，不会写死白厄或任何其他角色。白厄是计划制作的第一份本机私有伙伴包，后续角色复用同一协议接入。
 
 ## 当前阶段
+
+本轮 B3 已验证真实截图工作窗销毁后捕获停止、三次巡查安全降级且不处罚，并完成关停与隔离目录隐私清理。B2 按用户确认记录为手工完成，自动留存记录的局限单独保留。B3 其余系统场景与 B4/B5 仍开放，详情见 docs/11 第 5 节。
+
+2026-09-08：用户要求恢复 B2～B5 真实验收，覆盖此前延期安排；当前先执行 B2，N3/N4 不据此视为完成。已修正 18:00 验收提示：重新授权后保持未命中规则的窗口，由第 5 次本机 mock AI 请求验证取帧恢复。真实验收通过状态仍以逐项证据为准。
 
 阶段 0 文档基线、阶段 1 伙伴播放器和阶段 2 本地会话底座已经完成。当前主线是阶段 3「Windows 前台探针、显式授权的低频单帧巡查与可选兼容 AI」的安全收口。
 
@@ -12,7 +18,7 @@
 
 B0「启动稳定性与 GPU `launch-failed` 诊断」已于 2026-09-02 通过：连续 3 次隔离冷启动均到达设置界面。该批次定位并修复了三条启动根因——Agent 外壳注入的 `ELECTRON_RUN_AS_NODE=1`、Electron 44 的 `loadFile()` 不对非 ASCII 路径编码、以及沙箱外壳杀死 GPU 进程。真实 25 分钟人工场与环境矩阵仍未完成。
 
-2026-09-03 起，B2～B5 真实验收冻结到通用应用代码完成后的最终关闭阶段；阶段 3 仍保持未完成。当前下一批为 N1：仅用原创中性夹具收口通用多伙伴底座，随后依次处理 ZIP 安装安全、Windows 本地打包准备和非 B 自动审计。B 全部门禁通过前不生产第三方私有伙伴包。
+2026-09-03 起，B2～B5 真实验收冻结到通用应用代码完成后的最终关闭阶段；阶段 3 仍保持未完成。N1 通用多伙伴底座已用两份原创中性夹具完成列表、选择、场景锁定、动作降级和关系进度隔离收口；N2 ZIP 安装安全已于 2026-09-05 完成代码与非 B 验证：ZIP/目录共用校验、资源限额、原子发布、登记失败回滚与导入互斥；下一批为 N3 Windows 本地打包准备，随后进行 N4 非 B 自动审计。B 全部门禁通过前不生产第三方私有伙伴包。
 
 多伙伴列表、切换和本地媒体协议属于已实现的通用原型底座，不代表任何私有角色包已经完成生产或通过公开交付验收。
 
@@ -73,7 +79,7 @@ pnpm run rehearse:stage3:b1
 
 > **运行 Electron 的环境前提**：子进程环境不能包含 `ELECTRON_RUN_AS_NODE`（否则 Electron 会以纯 Node 运行，没有主进程与窗口）；必须在非沙箱的真实桌面会话中运行（沙箱会反复杀死 GPU 进程，表现为莫名的 renderer/GPU `launch-failed`）。两个验收 runner 已自动剔除该环境变量，手工运行请先 `env -u ELECTRON_RUN_AS_NODE`。根因分析见 `docs/11-stage-3-completion-plan.md` 第 6.4 节。
 
-仅预览 React 界面时运行 `pnpm run dev:renderer`，然后打开 `http://127.0.0.1:5173`。伙伴包目录导入、巡查悬浮窗和系统托盘只在 Electron 桌面版可用。
+仅预览 React 界面时运行 `pnpm run dev:renderer`，然后打开 `http://127.0.0.1:5173`。伙伴包 ZIP/目录导入、巡查悬浮窗和系统托盘只在 Electron 桌面版可用。ZIP 根层需包含 manifest.json 和 assets；限额与崩溃恢复边界见伙伴包协议第 10 节。
 
 `acceptance:stage3:preflight` 只验证隔离目录、严格本机 mock 协议与 5 步原始响应、固定节点、流式隐私扫描和精确目录清理，不启动 Electron 或真实 25 分钟场。完成预检后，`pnpm run acceptance:stage3` 才启动需要用户主动选屏和按会话面板提示切换前台应用的真实人工场；它不会读取正式用户数据库、使用真实 API 密钥或发送窗口标题。预检绿色不证明真实屏幕流、前台切换、系统停止共享或中断后的真实进程树清理。
 

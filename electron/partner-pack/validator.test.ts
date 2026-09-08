@@ -6,6 +6,7 @@ import { validatePackDirectory } from "./service";
 import {
   compareVersions,
   isSafePackPath,
+  isValidPartnerId,
   validatePartnerManifest,
 } from "./validator";
 
@@ -23,6 +24,18 @@ describe("PartnerPackManifestV1", () => {
     );
     expect(result.errors).toEqual([]);
     expect(result.ok).toBe(true);
+  });
+
+  it("accepts two original neutral partner fixtures", async () => {
+    const schema = await readJson<object>("schemas/partner-pack.v1.schema.json");
+    const first = await readJson<PartnerPackManifestV1>("examples/demo-partner/manifest.json");
+    const second = structuredClone(first);
+    second.partnerId = "demo-navigator";
+    second.displayName = "引航者一号";
+    second.description = "用于多伙伴切换测试的原创中性夹具。";
+
+    expect(validatePartnerManifest(schema, first, "0.1.0").ok).toBe(true);
+    expect(validatePartnerManifest(schema, second, "0.1.0").ok).toBe(true);
   });
 
   it("rejects a missing required reaction", async () => {
@@ -67,6 +80,17 @@ describe("pack path and version guards", () => {
     ["assets\\outside.mp4", false],
   ])("classifies %s", (filePath, expected) => {
     expect(isSafePackPath(filePath)).toBe(expected);
+  });
+
+  it.each([
+    ["demo-guardian", true],
+    ["partner-2", true],
+    ["demo.guardian", false],
+    ["../guardian", false],
+    ["Guardian", false],
+    ["a".repeat(81), false],
+  ])("validates partner id %s", (partnerId, expected) => {
+    expect(isValidPartnerId(partnerId)).toBe(expected);
   });
 
   it("compares stable three-part versions", () => {

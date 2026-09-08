@@ -23,6 +23,14 @@ function startService(normalizeSnapshot?: (snapshot: SessionSnapshot) => Session
 }
 
 describe("SessionService non-blocking feedback", () => {
+  it("reports whether partner mutations must stay locked", () => {
+    const { service, snapshot } = startService();
+    expect(service.isActive()).toBe(true);
+    service.finish(snapshot.sessionId, "interrupted");
+    expect(service.isActive()).toBe(false);
+    service.dispose();
+  });
+
   it("automatically returns an intermediate result to focusing after five seconds", () => {
     vi.useFakeTimers();
     const { service, snapshot } = startService();

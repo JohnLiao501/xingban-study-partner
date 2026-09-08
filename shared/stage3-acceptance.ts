@@ -138,14 +138,14 @@ export function getStage3AcceptanceInstruction(
     return {
       title: "16～18 分钟：重新授权与暂停恢复",
       action: captureStatus === "active"
-        ? "共享已重新建立；暂停一次，确认计时不增长，再继续计时。"
+        ? "共享已重新建立；暂停一次，确认计时不增长，再继续计时。随后保持未命中规则的窗口，等待 18:00 的 mock AI 巡查。"
         : "点击“重新授权屏幕”，由你再次加载并选择同一屏幕；随后暂停并恢复一次。",
       nextPatrolSecond: next,
     };
   }
   return {
     title: "18～25 分钟：稳定完成",
-    action: `让 ${plan.allowProcessName} 保持前台；18:00 节点应 focused，之后完成 25 分钟并直接结算。`,
+    action: "保持未命中允许/禁止规则的窗口；18:00 节点由本机 mock AI 返回 focused，验证重新授权后可取帧，之后完成 25 分钟并直接结算。",
     nextPatrolSecond: next,
   };
 }

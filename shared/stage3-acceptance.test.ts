@@ -36,6 +36,16 @@ describe("stage 3 acceptance plan", () => {
     expect(active.action).toContain("暂停一次");
   });
 
+  it("keeps the reauthorized capture on an unmatched app for the final AI node", () => {
+    const plan = createStage3AcceptancePlanView("notepad", "mspaint");
+    for (const second of [970, 1079, 1080, 1081]) {
+      const instruction = getStage3AcceptanceInstruction(plan, second, 6, "focusing", false, "active");
+      expect(instruction.action).toContain("未命中");
+      expect(instruction.action).toContain("mock AI");
+      expect(instruction.action).not.toContain("notepad");
+    }
+  });
+
   it("does not skip a patrol node when recovery feedback lands on the same focused second", () => {
     const normalize = (snapshot: ReturnType<typeof createSession>) =>
       applyStage3AcceptancePatrolSchedule(snapshot);

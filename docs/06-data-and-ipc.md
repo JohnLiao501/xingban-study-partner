@@ -129,7 +129,7 @@ API 密钥明文不进入此表。主进程先用 Electron `safeStorage` 加密�
 
 - 频道名使用 `domain:action`，仅允许下表中的固定频道。
 - 主进程把输入视为 `unknown`，运行严格白名单校验：拒绝额外/缺失字段、未知枚举、超长字符串、非法 URL、重复规则 ID 和越界数值。
-- renderer 不传入任意安装路径；伙伴目录只由主进程系统选择器取得。
+- renderer 不传入任意安装路径；伙伴 ZIP/目录只由主进程系统选择器取得。
 - preload 按窗口拆分，主进程再按 `event.sender === expectedWindow.webContents` 校验：主窗口、悬浮窗和截图窗不能互调能力。
 - 会话时间、巡查结果、数据库与系统能力以主进程为准。浏览器预览的手工巡查只直接调用共享纯状态机，不进入 Electron IPC；桌面 preload 不暴露手工巡查触发或结果提交能力，自动巡查只通过主进程内部服务入口推进状态。
 
@@ -143,6 +143,7 @@ API 密钥明文不进入此表。主进程先用 Electron `safeStorage` 加密�
 | `partner:list` | 无 | 已安装伙伴摘要。 |
 | `partner:select` | partnerId | 新的启动数据；显式隔离验收模式下同样附带固定节点提示。 |
 | `partner:import-directory` | 无；主进程打开目录选择器 | 安装结果或取消。 |
+| `partner:import-pack` | 无；主进程选择 ZIP/文件夹并打开系统选择器 | `ImportResult`；拒绝任何额外参数。 |
 | `partner:get-progress` | partnerId | 当前伙伴独立信赖。 |
 | `overlay:show-preview` | 严格 `OverlayPreviewPayload` | 无。 |
 | `overlay:hide` | 无 | 无。 |
@@ -162,6 +163,8 @@ API 密钥明文不进入此表。主进程先用 Electron `safeStorage` 加密�
 | `settings:save-vision` | 严格设置对象，可短暂含 apiKey/clearApiKey | 不含密钥的设置视图。 |
 | `settings:test-connection` | 无 | ok 与低敏消息。 |
 | `window:minimize` / `window:toggle-maximize` / `window:close` | 无 | 窗口操作结果。 |
+
+N2：`StudyPartnerApi.importPartnerPack()` 对应 `partner:import-pack`，旧目录接口保留。两者仅主窗口可调用，活动会话或隔离 B 验收中拒绝导入；导入从系统对话框到登记期间互斥，同时拒绝 `session:start` 和 `partner:select`。选择器取消返回 `{ ok: false, errors: [], cancelled: true }`。安装失败返回低敏码（例如 `PACK_PATH_UNSAFE`、`PACK_SIZE_LIMIT`、`PACK_ARCHIVE_LIMIT`、`PACK_ENTRY_LIMIT`、`PACK_DUPLICATE_PATH`、`PACK_FILE_NOT_REGULAR`、`PACK_ZIP_UNSUPPORTED`、`PACK_ZIP_INVALID`、`PACK_VERSION_CONFLICT`、`PACK_INSTALL_TIMEOUT`、`PACK_INSTALL_CANCELLED`、`PACK_INSTALL_BUSY`、`PACK_INSTALL_FAILED`），不返回底层异常路径或 ZIP 内容。清单校验错误仍保留现有字段定位信息。成功发布后同步登记既有 `partner_packs` 表，再更新运行时资源路径；无数据库迁移。导入同 ID 新版本后，列表、选择与重启均使用已登记版本。
 
 ### 4.2 截图工作窗专用
 

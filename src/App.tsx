@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   REACTION_LABELS,
+  resolveRelationshipLevel,
   type BootstrapData,
   type InstalledPartnerSummary,
   type ReactionKey,
@@ -37,6 +38,7 @@ export default function App() {
   const [reactionKey, setReactionKey] = useState<ReactionKey>("idle_loop");
   const [notice, setNotice] = useState("demo 伙伴包已通过完整校验");
   const [setupOpen, setSetupOpen] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [currentView, setCurrentView] = useState<AppView>("study");
   const session = useSessionController();
   const appRules = useAppRules();
@@ -83,12 +85,15 @@ export default function App() {
     }
   };
 
+  const currentPartnerTrust = bootstrap
+    ? session.progressByPartner[bootstrap.manifest.partnerId]?.totalTrust ?? 0
+    : 0;
 
   const preview = useMemo(() => {
     if (!bootstrap || !sceneId) return undefined;
     const effectiveReaction = session.snapshot?.reactionKey ?? reactionKey;
-    return findReactionPreview(bootstrap.manifest, sceneId, effectiveReaction);
-  }, [bootstrap, reactionKey, sceneId, session.snapshot?.reactionKey]);
+    return findReactionPreview(bootstrap.manifest, sceneId, effectiveReaction, currentPartnerTrust);
+  }, [bootstrap, currentPartnerTrust, reactionKey, sceneId, session.snapshot?.reactionKey]);
 
   useEffect(() => {
     if (!window.studyPartner || !preview || !session.snapshot) return undefined;
@@ -140,10 +145,7 @@ export default function App() {
     currentLevelId: manifest.relationshipLevels[0]?.id ?? "initial",
     lastSessionAt: null,
   };
-  const currentLevel = manifest.relationshipLevels
-    .filter((level) => level.minimumTrust <= progress.totalTrust)
-    .sort((left, right) => right.minimumTrust - left.minimumTrust)[0]
-    ?? manifest.relationshipLevels[0];
+  const currentLevel = resolveRelationshipLevel(manifest.relationshipLevels, progress.totalTrust);
 
   const selectReaction = (nextReaction: ReactionKey) => {
     setReactionKey(nextReaction);
@@ -160,18 +162,26 @@ export default function App() {
 
   const importPartner = async () => {
     if (!window.studyPartner) {
-      setNotice("伙伴包目录导入仅在 Electron 桌面版可用");
+      setNotice("ZIP 或文件夹导入仅在 Electron 桌面版可用");
       return;
     }
-    const result = await window.studyPartner.importPartnerDirectory();
-    if (result.cancelled) {
-      setNotice("已取消导入");
-    } else if (result.ok && result.manifest) {
-      setNotice(`已安装 ${result.manifest.displayName} ${result.manifest.packVersion}`);
-      await refreshInstalledPartners();
-      await handlePartnerChange(result.manifest.partnerId);
-    } else {
-      setNotice(result.errors[0] ?? "伙伴包导入失败");
+    if (importing) return;
+    setImporting(true);
+    try {
+      const result = await window.studyPartner.importPartnerPack();
+      if (result.cancelled) {
+        setNotice("已取消导入");
+      } else if (result.ok && result.manifest) {
+        setNotice(`已安装 ${result.manifest.displayName} ${result.manifest.packVersion}`);
+        await refreshInstalledPartners();
+        await handlePartnerChange(result.manifest.partnerId);
+      } else {
+        setNotice(result.errors[0] ?? "伙伴包导入失败");
+      }
+    } catch {
+      setNotice("伙伴包导入失败，请重试");
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -235,7 +245,8 @@ export default function App() {
           />
         ) : (
           <main className="study-room">
-          <PackToolbar
+        <PackToolbar
+            importing={importing}
             desktopRuntime={desktopRuntime}
             installedPartners={installedPartners}
             manifest={manifest}
@@ -250,6 +261,7 @@ export default function App() {
             <MediaStage
               activityLabel={session.snapshot ? SESSION_ACTIVITY_LABELS[session.snapshot.phase] : undefined}
               assetBaseUrl={bootstrap.assetBaseUrl}
+              packVersion={manifest.packVersion}
               coverPath={cover.filePath}
               onShowOverlay={() => void showOverlay()}
               partnerName={manifest.displayName}

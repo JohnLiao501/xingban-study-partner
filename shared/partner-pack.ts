@@ -46,6 +46,19 @@ export interface RelationshipLevel {
   unlockNote?: string;
 }
 
+export function resolveRelationshipLevel(
+  levels: readonly RelationshipLevel[],
+  totalTrust: number,
+): RelationshipLevel | undefined {
+  let resolved: RelationshipLevel | undefined;
+  for (const level of levels) {
+    if (level.minimumTrust <= totalTrust && (!resolved || level.minimumTrust > resolved.minimumTrust)) {
+      resolved = level;
+    }
+  }
+  return resolved ?? levels[0];
+}
+
 export interface ReactionVariant {
   variantId: string;
   videoAssetId: string;
@@ -160,6 +173,7 @@ import type { CaptureControllerApi, VisionSettingsApi, ObservationRecord } from 
 export interface StudyPartnerApi extends SessionControllerApi, AppRuleApi, CaptureControllerApi, VisionSettingsApi {
   getBootstrapData: () => Promise<BootstrapData>;
   importPartnerDirectory: () => Promise<ImportResult>;
+  importPartnerPack: () => Promise<ImportResult>;
   listInstalledPartners: () => Promise<InstalledPartnerSummary[]>;
   selectPartner: (partnerId: string) => Promise<BootstrapData>;
   listSessionObservations: (sessionId: string) => Promise<ObservationRecord[]>;
